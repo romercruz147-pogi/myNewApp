@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { AuthScreen } from '@/components/auth-screen';
-import { loginUser } from '@/lib/auth';
+import { loginUser, loginWithGoogle } from '@/lib/auth';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -15,6 +15,13 @@ export default function LoginScreen() {
     router.replace('/dashboard');
   };
 
+
+  const onGoogleLogin = async () => {
+    const res = await loginWithGoogle();
+    if (!res.ok) return setError(res.message ?? 'Google login failed.');
+    setError('');
+    router.replace('/dashboard');
+  };
   return (
     <AuthScreen
       title="Welcome Back"
@@ -25,6 +32,7 @@ export default function LoginScreen() {
       helper="Forgot Password?"
       primaryLabel="Login"
       onPrimaryPress={onLogin}
+      onGooglePress={onGoogleLogin}
       footerLead="Don't have an account?"
       footerAction="Sign Up"
       footerHref="/register"

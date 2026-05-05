@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { AuthScreen } from '@/components/auth-screen';
-import { registerUser } from '@/lib/auth';
+import { loginWithGoogle, registerUser } from '@/lib/auth';
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -16,6 +16,13 @@ export default function RegisterScreen() {
     router.replace('/login');
   };
 
+
+  const onGoogleRegister = async () => {
+    const res = await loginWithGoogle();
+    if (!res.ok) return setError(res.message ?? 'Google sign-up failed.');
+    setError('');
+    router.replace('/dashboard');
+  };
   return (
     <AuthScreen
       title="Create Account"
@@ -26,6 +33,7 @@ export default function RegisterScreen() {
       helper="Use 8+ characters for best security"
       primaryLabel="Register"
       onPrimaryPress={onRegister}
+      onGooglePress={onGoogleRegister}
       footerLead="Already have an account?"
       footerAction="Login"
       footerHref="/login"
