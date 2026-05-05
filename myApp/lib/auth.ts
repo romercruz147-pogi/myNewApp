@@ -13,7 +13,7 @@ import { Timestamp, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firest
 import { auth, db, firebaseConfig } from './firebase';
 
 export type User = { uid: string; name: string; email: string; photoURL?: string };
-export type UserProfile = { name: string; email: string; createdAt?: Timestamp };
+export type UserProfile = { name: string; email: string; createdAt?: Timestamp; role?: string; provider?: string; lastLogin?: Timestamp };
 
 type NativeGoogleSignin = {
   configure: (options: { webClientId: string; offlineAccess?: boolean }) => void;
@@ -42,16 +42,37 @@ function mapUser(user: FirebaseUser): User {
   };
 }
 
-export async function ensureUserInFirestore(user: UserProfile & { uid: string }) {
+async function upsertUserAuthMetadata(user: User & { provider: string }) {
   const userRef = doc(db, 'users', user.uid);
-  const snapshot = await getDoc(userRef);
-  if (!snapshot.exists()) {
+  const snap = await getDoc(userRef);
+  if (!snap.exists()) {
     await setDoc(userRef, {
+      uid: user.uid,
       name: user.name,
       email: user.email,
+      provider: user.provider,
+      role: 'user',
       createdAt: serverTimestamp(),
+      lastLogin: serverTimestamp(),
     });
+    return;
   }
+
+  await setDoc(
+    userRef,
+    {
+      uid: user.uid,
+      name: user.name,
+      email: user.email,
+      provider: user.provider,
+      lastLogin: serverTimestamp(),
+    },
+    { merge: true },
+  );
+}
+
+export async function ensureUserInFirestore(user: UserProfile & { uid: string }) {
+  await upsertUserAuthMetadata({ uid: user.uid, name: user.name, email: user.email, photoURL: undefined, provider: 'google' });
 }
 
 export async function getUserProfile(uid: string) {
@@ -62,18 +83,24 @@ export async function getUserProfile(uid: string) {
 export async function registerWithEmail(name: string, email: string, password: string) {
   const result = await createUserWithEmailAndPassword(auth, email, password);
   await setDoc(doc(db, 'users', result.user.uid), {
+    uid: result.user.uid,
     name,
     email,
+    provider: 'email',
+    role: 'user',
     createdAt: serverTimestamp(),
+    lastLogin: serverTimestamp(),
   });
   return { user: mapUser(result.user) };
 }
 
 export async function loginWithEmail(email: string, password: string) {
   const result = await signInWithEmailAndPassword(auth, email, password);
+  const user = mapUser(result.user);
+  await upsertUserAuthMetadata({ ...user, provider: 'email' });
   const profile = await getUserProfile(result.user.uid);
   return {
-    user: mapUser(result.user),
+    user,
     profile,
   };
 }

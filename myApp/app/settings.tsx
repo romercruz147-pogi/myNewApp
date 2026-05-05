@@ -12,19 +12,10 @@ import {
   View,
 } from 'react-native';
 import { deleteUser, EmailAuthProvider, reauthenticateWithCredential, updateProfile } from 'firebase/auth';
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  onSnapshot,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-} from 'firebase/firestore';
+import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import { AppShell } from '@/components/app-shell';
 import { palette } from '@/components/theme';
-import { auth, db } from '@/lib/firebase';
+import { auth, db, firebaseConfig } from '@/lib/firebase';
 import { logoutUser, subscribeToAuthState, User } from '@/lib/auth';
 
 const defaultPrefs = { deviceOfflineAlerts: true, sensorAlerts: true, darkMode: true, units: 'C', language: 'English' };
@@ -32,12 +23,14 @@ const defaultPrefs = { deviceOfflineAlerts: true, sensorAlerts: true, darkMode: 
 export default function Settings() {
   const [user, setUser] = useState<User | null>(null);
   const [displayName, setDisplayName] = useState('');
-  const [devices, setDevices] = useState<{ id: string; name?: string; createdAt?: unknown }[]>([]);
+  const [devices, setDevices] = useState<{ id: string; name?: string; createdAt?: unknown; credentialToken?: string }[]>([]);
   const [preferences, setPreferences] = useState(defaultPrefs);
   const [loading, setLoading] = useState(true);
   const [savingName, setSavingName] = useState(false);
   const [processingDeviceId, setProcessingDeviceId] = useState<string | null>(null);
   const [newDeviceName, setNewDeviceName] = useState('');
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  const [creatingDevice, setCreatingDevice] = useState(false);
 
   useEffect(() => subscribeToAuthState((authUser) => {
     setUser(authUser);
@@ -65,7 +58,9 @@ export default function Settings() {
     });
 
     const unsubDevices = onSnapshot(devicesRef, (snap) => {
-      setDevices(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      const nextDevices = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setDevices(nextDevices);
+      if (!selectedDeviceId && nextDevices.length) setSelectedDeviceId(nextDevices[0].id);
       setLoading(false);
     }, () => setLoading(false));
 
@@ -74,7 +69,7 @@ export default function Settings() {
       unsubPrefs();
       unsubDevices();
     };
-  }, [user?.uid]);
+  }, [user?.uid, selectedDeviceId]);
 
   const isGoogleUser = useMemo(
     () => !!auth.currentUser?.providerData.some((provider) => provider.providerId === 'google.com'),
@@ -108,13 +103,28 @@ export default function Settings() {
   const addDevice = async () => {
     if (!user?.uid || !newDeviceName.trim()) return;
     try {
-      await addDoc(collection(db, 'users', user.uid, 'devices'), {
+      setCreatingDevice(true);
+      const deviceRef = doc(collection(db, 'users', user.uid, 'devices'));
+      const token = `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+      await setDoc(deviceRef, {
         name: newDeviceName.trim(),
+        ownerUid: user.uid,
+        credentialToken: token,
+        status: 'offline',
+        ledState: false,
+        temperature: null,
+        lastSeen: null,
         createdAt: serverTimestamp(),
+        config: { firmware: 'esp32', protocol: 'firebase' },
+        commands: { ledState: false },
+        data: { temperature: null, status: 'offline', lastSeen: null },
       });
       setNewDeviceName('');
+      setSelectedDeviceId(deviceRef.id);
     } catch (error) {
       Alert.alert('Error', error instanceof Error ? error.message : 'Could not add device.');
+    } finally {
+      setCreatingDevice(false);
     }
   };
 
@@ -138,11 +148,20 @@ export default function Settings() {
     try {
       setProcessingDeviceId(id);
       await deleteDoc(doc(db, 'users', user.uid, 'devices', id));
+      if (selectedDeviceId === id) setSelectedDeviceId(null);
     } catch (error) {
       Alert.alert('Error', error instanceof Error ? error.message : 'Could not remove device.');
     } finally {
       setProcessingDeviceId(null);
     }
+  };
+
+  const selectedDevice = devices.find((d) => d.id === selectedDeviceId);
+
+  const copyCredentials = async () => {
+    if (!user?.uid || !selectedDevice) return;
+    const payload = `deviceId=${selectedDevice.id}\nuid=${user.uid}\napiKey=${firebaseConfig.apiKey}\ndatabasePath=users/${user.uid}/devices/${selectedDevice.id}\ntoken=${selectedDevice.credentialToken ?? ''}`;
+    Alert.alert('Device Credentials', payload);
   };
 
   const deleteCurrentAccount = async () => {
@@ -168,7 +187,7 @@ export default function Settings() {
   return (
     <AppShell title="Settings">
       <ScrollView contentContainerStyle={styles.container}>
-        <View style={styles.card}>
+        <View style={styles.card}>{/* existing sections kept */}
           <Text style={styles.heading}>Account</Text>
           {!!user?.photoURL && <Image source={{ uri: user.photoURL }} style={styles.avatar} />}
           <Text style={styles.label}>Display Name</Text>
@@ -191,17 +210,30 @@ export default function Settings() {
           <Text style={styles.heading}>Devices</Text>
           <View style={styles.row}>
             <TextInput value={newDeviceName} onChangeText={setNewDeviceName} placeholder="Add ESP32 device" placeholderTextColor={palette.muted} style={[styles.input, styles.flex]} />
-            <Pressable style={styles.primaryButtonCompact} onPress={addDevice}><Text style={styles.buttonText}>Add</Text></Pressable>
+            <Pressable style={styles.primaryButtonCompact} onPress={addDevice}><Text style={styles.buttonText}>{creatingDevice ? '...' : 'Add'}</Text></Pressable>
           </View>
           {loading ? <ActivityIndicator color={palette.accent} /> : devices.map((device) => (
             <View key={device.id} style={styles.listItem}>
-              <Text style={styles.text}>{device.name || 'Unnamed device'}</Text>
+              <Pressable onPress={() => setSelectedDeviceId(device.id)}><Text style={styles.text}>{device.name || 'Unnamed device'}</Text></Pressable>
               <View style={styles.row}>
                 <Pressable onPress={() => renameDevice(device.id, device.name || '')}><Text style={styles.link}>Rename</Text></Pressable>
                 <Pressable onPress={() => removeDevice(device.id)}><Text style={styles.dangerText}>{processingDeviceId === device.id ? '...' : 'Remove'}</Text></Pressable>
               </View>
             </View>
           ))}
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.heading}>Device Credentials</Text>
+          {!selectedDevice ? <Text style={styles.helper}>Add or select a device to provision your ESP32.</Text> : (
+            <View style={{ gap: 8 }}>
+              <Text style={styles.text}>Device ID: {selectedDevice.id}</Text>
+              <Text style={styles.text}>UID Path: users/{user?.uid}/devices/{selectedDevice.id}</Text>
+              <Text style={styles.text}>API Key: {firebaseConfig.apiKey}</Text>
+              <Text style={styles.text}>Token: {selectedDevice.credentialToken ?? 'Unavailable'}</Text>
+              <Pressable style={styles.primaryButtonCompact} onPress={copyCredentials}><Text style={styles.buttonText}>Copy Credentials</Text></Pressable>
+            </View>
+          )}
         </View>
 
         <View style={styles.card}>
@@ -213,8 +245,6 @@ export default function Settings() {
         <View style={styles.card}>
           <Text style={styles.heading}>Preferences</Text>
           <ToggleRow label="Dark mode (UI only)" value={preferences.darkMode} onChange={(v) => upsertPreference('darkMode', v)} />
-          <SegmentedChoice label="Units" values={['C', 'F']} active={preferences.units} onSelect={(v) => upsertPreference('units', v)} />
-          <SegmentedChoice label="Language" values={['English', 'Spanish']} active={preferences.language} onSelect={(v) => upsertPreference('language', v)} />
         </View>
 
         <View style={styles.card}>
@@ -222,6 +252,7 @@ export default function Settings() {
           <Text style={styles.text}>Version: 1.0.0</Text>
           <Text style={styles.text}>Support: support@iotapp.dev</Text>
         </View>
+
       </ScrollView>
     </AppShell>
   );
@@ -232,21 +263,6 @@ function ToggleRow({ label, value, onChange }: { label: string; value: boolean; 
     <View style={styles.toggleRow}>
       <Text style={styles.text}>{label}</Text>
       <Switch value={value} onValueChange={onChange} thumbColor="#fff" trackColor={{ false: '#333', true: '#2563EB' }} />
-    </View>
-  );
-}
-
-function SegmentedChoice({ label, values, active, onSelect }: { label: string; values: string[]; active: string; onSelect: (value: string) => void }) {
-  return (
-    <View>
-      <Text style={[styles.label, { marginTop: 0 }]}>{label}</Text>
-      <View style={styles.segmentWrap}>
-        {values.map((value) => (
-          <Pressable key={value} onPress={() => onSelect(value)} style={[styles.segmentButton, active === value && styles.segmentButtonActive]}>
-            <Text style={[styles.text, active === value && styles.segmentTextActive]}>{value === 'C' ? '°C' : value === 'F' ? '°F' : value}</Text>
-          </Pressable>
-        ))}
-      </View>
     </View>
   );
 }
@@ -271,9 +287,5 @@ const styles = StyleSheet.create({
   link: { color: '#60A5FA', marginRight: 12 },
   dangerText: { color: '#FCA5A5' },
   toggleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
-  segmentWrap: { flexDirection: 'row', gap: 8 },
-  segmentButton: { borderRadius: 10, borderWidth: 1, borderColor: '#303030', paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#151515' },
-  segmentButtonActive: { backgroundColor: '#1D4ED8', borderColor: '#1D4ED8' },
-  segmentTextActive: { fontWeight: '700' },
   avatar: { width: 64, height: 64, borderRadius: 32, borderWidth: 1, borderColor: '#333' },
 });
