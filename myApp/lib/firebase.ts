@@ -4,12 +4,16 @@ export type FirebaseConfig = {
   googleClientId: string;
 };
 
-const required = ['EXPO_PUBLIC_FIREBASE_API_KEY', 'EXPO_PUBLIC_FIREBASE_PROJECT_ID', 'EXPO_PUBLIC_GOOGLE_CLIENT_ID'] as const;
+const FALLBACKS: FirebaseConfig = {
+  apiKey: 'AIzaSyCtLJvzqp1HM9hxFjumNGbJx83l2amkbJQ',
+  projectId: 'esp-32-iot-39bd2',
+  googleClientId: '807423195952-aoq1ge24jrfr0ic7ral9m2r2imeh14aj.apps.googleusercontent.com',
+};
 
 export function getFirebaseConfig(): FirebaseConfig {
-  const [apiKey, projectId, googleClientId] = required.map((k) => process.env[k] ?? '');
-  if (!apiKey || !projectId || !googleClientId) {
-    throw new Error('Firebase env vars missing. Set EXPO_PUBLIC_FIREBASE_API_KEY, EXPO_PUBLIC_FIREBASE_PROJECT_ID, EXPO_PUBLIC_GOOGLE_CLIENT_ID');
-  }
-  return { apiKey, projectId, googleClientId };
+  return {
+    apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? FALLBACKS.apiKey,
+    projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? FALLBACKS.projectId,
+    googleClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? FALLBACKS.googleClientId,
+  };
 }
