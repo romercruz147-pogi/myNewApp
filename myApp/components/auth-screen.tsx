@@ -19,6 +19,7 @@ type AuthScreenProps = {
   footerAction: string;
   footerHref: '/login' | '/register';
   error?: string;
+  hideGoogle?: boolean;
 };
 
 export function AuthScreen(props: AuthScreenProps) {
@@ -43,6 +44,7 @@ export function AuthScreen(props: AuthScreenProps) {
                 onChangeText={(v) => props.onChange(f.key, v)}
                 secureTextEntry={f.secure}
                 style={styles.input}
+                autoCapitalize="none"
               />
             ))}
             <Text style={styles.helper}>{props.helper}</Text>
@@ -50,8 +52,12 @@ export function AuthScreen(props: AuthScreenProps) {
             <Pressable style={styles.primary} onPress={props.onPrimaryPress}>
               <Text style={styles.primaryText}>{props.primaryLabel}</Text>
             </Pressable>
-            <View style={styles.orRow}><View style={styles.line} /><Text style={styles.or}>OR</Text><View style={styles.line} /></View>
-            <Pressable style={styles.secondary} onPress={props.onGooglePress}><Text style={styles.secondaryText}>Continue with Google</Text></Pressable>
+            {!props.hideGoogle && (
+              <>
+                <View style={styles.orRow}><View style={styles.line} /><Text style={styles.or}>OR</Text><View style={styles.line} /></View>
+                <Pressable style={styles.secondary} onPress={props.onGooglePress}><Text style={styles.secondaryText}>Continue with Google</Text></Pressable>
+              </>
+            )}
           </View>
 
           <Text style={styles.footer}>{props.footerLead} <Link href={props.footerHref} style={styles.link}>{props.footerAction}</Link></Text>
@@ -62,22 +68,22 @@ export function AuthScreen(props: AuthScreenProps) {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: palette.bg },
-  container: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
+  safeArea: { flex: 1, backgroundColor: '#000000' },
+  container: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 16 },
   frame: { padding: 20, borderRadius: 24, backgroundColor: palette.bg },
   icon: { color: palette.accent, textAlign: 'center', fontSize: 42, marginBottom: 12 },
   title: { color: palette.text, textAlign: 'center', fontSize: 30, fontWeight: '700' },
   subtitle: { color: palette.muted, textAlign: 'center', marginBottom: 22 },
   form: { gap: 12 },
-  input: { backgroundColor: palette.panel2, color: palette.text, borderRadius: 18, paddingHorizontal: 16, height: 54, borderColor: palette.border, borderWidth: 1 },
+  input: { backgroundColor: '#1f2937', color: '#ffffff', borderRadius: 18, paddingHorizontal: 16, height: 54, borderColor: palette.border, borderWidth: 1 },
   helper: { color: palette.muted, textAlign: 'right' },
   error: { color: '#f87171' },
-  primary: { height: 54, borderRadius: 18, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' },
-  primaryText: { color: '#111827', fontWeight: '700' },
+  primary: { height: 54, borderRadius: 18, backgroundColor: '#2563eb', justifyContent: 'center', alignItems: 'center' },
+  primaryText: { color: '#ffffff', fontWeight: '700' },
   orRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   line: { flex: 1, height: 1, backgroundColor: palette.border },
   or: { color: palette.muted, fontSize: 12 },
-  secondary: { height: 54, borderRadius: 18, borderWidth: 1, borderColor: palette.border, justifyContent: 'center', alignItems: 'center' },
+  secondary: { height: 54, borderRadius: 18, borderWidth: 1, borderColor: palette.border, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111827' },
   secondaryText: { color: palette.text },
   footer: { color: palette.muted, textAlign: 'center', marginTop: 20 },
   link: { color: palette.accent, fontWeight: '700' },
