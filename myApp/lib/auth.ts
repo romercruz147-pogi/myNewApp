@@ -1,56 +1,74 @@
-export type User = { name: string; email: string; passwordHash: string; provider: 'password' | 'google' };
+import { getFirebaseConfig } from './firebase';
 
-const userDb: User[] = [];
+export type User = { uid: string; name: string; email: string; photoURL?: string };
 
-const hashPassword = (input: string) => {
-  let hash = 5381;
-  for (let i = 0; i < input.length; i += 1) hash = (hash * 33) ^ input.charCodeAt(i);
-  return `h_${(hash >>> 0).toString(16)}`;
-};
+const FIREBASE_AUTH_BASE = 'https://identitytoolkit.googleapis.com/v1';
 
-const isValidEmail = (email: string) => /^\S+@\S+\.\S+$/.test(email);
+async function ensureUserInFirestore(user: User, idToken: string) {
+  const { projectId } = getFirebaseConfig();
+  const base = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${user.uid}`;
+
+  const getRes = await fetch(`${base}?access_token=${idToken}`);
+  if (getRes.status === 404) {
+    const body = {
+      fields: {
+        name: { stringValue: user.name },
+        email: { stringValue: user.email },
+        createdAt: { timestampValue: new Date().toISOString() },
+      },
+    };
+    const createRes = await fetch(`${base}?access_token=${idToken}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!createRes.ok) throw new Error('Failed creating Firestore user profile.');
+  } else if (!getRes.ok) {
+    throw new Error('Failed checking Firestore user profile.');
+  }
+}
+
+export async function loginWithGoogle() {
+  return { ok: false, message: 'Google Sign-In requires expo-auth-session package, which is blocked in this environment.' };
+}
 
 export async function registerUser(name: string, email: string, password: string) {
-  const cleanName = name.trim();
-  const normalized = email.trim().toLowerCase();
+  const { apiKey } = getFirebaseConfig();
+  const res = await fetch(`${FIREBASE_AUTH_BASE}/accounts:signUp?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email.trim().toLowerCase(), password, returnSecureToken: true }),
+  });
+  const data = await res.json();
+  if (!res.ok) return { ok: false, message: data?.error?.message ?? 'Registration failed' };
 
-  if (!cleanName) return { ok: false, message: 'Name is required.' };
-  if (!isValidEmail(normalized)) return { ok: false, message: 'Enter a valid email.' };
-  if (password.length < 8) return { ok: false, message: 'Password must be at least 8 characters.' };
+  const profileRes = await fetch(`${FIREBASE_AUTH_BASE}/accounts:update?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idToken: data.idToken, displayName: name.trim(), returnSecureToken: true }),
+  });
+  if (!profileRes.ok) return { ok: false, message: 'Failed to update profile.' };
 
-  const existing = userDb.find((u) => u.email === normalized);
-  if (existing) return { ok: false, message: 'Email already registered.' };
-
-  userDb.push({ name: cleanName, email: normalized, passwordHash: hashPassword(password), provider: 'password' });
+  await ensureUserInFirestore({ uid: data.localId, name: name.trim(), email: email.trim().toLowerCase() }, data.idToken);
   return { ok: true };
 }
 
 export async function loginUser(email: string, password: string) {
-  const normalized = email.trim().toLowerCase();
-  const user = userDb.find((u) => u.email === normalized);
-  if (!user) return { ok: false, message: 'No account found.' };
-  if (user.provider !== 'password') return { ok: false, message: 'Use Google Sign-In for this account.' };
-  if (user.passwordHash !== hashPassword(password)) return { ok: false, message: 'Invalid credentials.' };
+  const { apiKey } = getFirebaseConfig();
+  const res = await fetch(`${FIREBASE_AUTH_BASE}/accounts:signInWithPassword?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email.trim().toLowerCase(), password, returnSecureToken: true }),
+  });
+  const data = await res.json();
+  if (!res.ok) return { ok: false, message: data?.error?.message ?? 'Login failed' };
+
+  const user = {
+    uid: data.localId,
+    name: data.displayName || 'User',
+    email: data.email,
+    photoURL: data.photoUrl,
+  };
+  await ensureUserInFirestore(user, data.idToken);
   return { ok: true, user };
-}
-
-export async function loginWithGoogle() {
-  const googleEmail = 'google.user@example.com';
-  let user = userDb.find((u) => u.email === googleEmail);
-
-  if (!user) {
-    user = {
-      name: 'Google User',
-      email: googleEmail,
-      passwordHash: hashPassword(`google:${Date.now()}`),
-      provider: 'google',
-    };
-    userDb.push(user);
-  }
-
-  return { ok: true, user, message: 'Signed in with Google.' };
-}
-
-export function debugListUsers() {
-  return [...userDb];
 }
