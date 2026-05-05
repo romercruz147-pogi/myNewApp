@@ -14,6 +14,7 @@ type AuthScreenProps = {
   helper: string;
   primaryLabel: string;
   onPrimaryPress: () => void;
+  onGooglePress?: () => void;
   footerLead: string;
   footerAction: string;
   footerHref: '/login' | '/register';
@@ -50,7 +51,7 @@ export function AuthScreen(props: AuthScreenProps) {
               <Text style={styles.primaryText}>{props.primaryLabel}</Text>
             </Pressable>
             <View style={styles.orRow}><View style={styles.line} /><Text style={styles.or}>OR</Text><View style={styles.line} /></View>
-            <Pressable style={styles.secondary}><Text style={styles.secondaryText}>Continue with Google</Text></Pressable>
+            <Pressable style={styles.secondary} onPress={props.onGooglePress}><Text style={styles.secondaryText}>Continue with Google</Text></Pressable>
           </View>
 
           <Text style={styles.footer}>{props.footerLead} <Link href={props.footerHref} style={styles.link}>{props.footerAction}</Link></Text>
