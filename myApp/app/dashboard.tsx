@@ -1,15 +1,31 @@
-import { StyleSheet, Switch, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { AppShell } from '@/components/app-shell';
 import { palette } from '@/components/theme';
+import { subscribeToAuthState, User } from '@/lib/auth';
+import { db } from '@/lib/firebase';
 
 export default function Dashboard() {
+  const [user, setUser] = useState<User | null>(null);
+  const [devices, setDevices] = useState<any[]>([]);
+
+  useEffect(() => subscribeToAuthState(setUser), []);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    const q = query(collection(db, 'devices'), where('uid', '==', user.uid));
+    return onSnapshot(q, (snap) => setDevices(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+  }, [user?.uid]);
+
+  const online = useMemo(() => devices.filter((d) => d.isOn).length, [devices]);
+
   return (
     <AppShell title="Dashboard">
-      <Text style={styles.subtitle}>Welcome back. Your ESP32 fleet is online.</Text>
+      <Text style={styles.subtitle}>Welcome {user?.name ?? 'User'} • {user?.email ?? ''}</Text>
       <View style={styles.row}>
-        {['Online Devices: 8', 'Alerts: 2', 'Energy Today: 12.4kWh'].map((t) => <View key={t} style={styles.card}><Text style={styles.cardText}>{t}</Text></View>)}
+        {[`Connected Devices: ${devices.length}`, `Online: ${online}`, 'ESP32 System: Healthy'].map((t) => <View key={t} style={styles.card}><Text style={styles.cardText}>{t}</Text></View>)}
       </View>
-      <View style={styles.card}><Text style={styles.cardText}>Quick Toggle: Main Pump</Text><Switch value /></View>
     </AppShell>
   );
 }

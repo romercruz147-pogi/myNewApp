@@ -1,4 +1,5 @@
 import { Link, usePathname, useRouter } from 'expo-router';
+import { logoutUser } from '@/lib/auth';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { ReactNode } from 'react';
 import { palette } from '@/components/theme';
@@ -24,7 +25,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
             {item.label}
           </Link>
         ))}
-        <Pressable onPress={() => router.replace('/login')}><Text style={styles.logout}>Logout</Text></Pressable>
+        <Pressable onPress={async () => { await logoutUser(); router.replace('/login'); }}><Text style={styles.logout}>Logout</Text></Pressable>
       </View>
       <View style={styles.content}><Text style={styles.title}>{title}</Text>{children}</View>
     </View>

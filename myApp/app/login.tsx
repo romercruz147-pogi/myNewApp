@@ -1,40 +1,39 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AuthScreen } from '@/components/auth-screen';
-import { loginUser, loginWithGoogle } from '@/lib/auth';
+import { loginWithGoogle, subscribeToAuthState } from '@/lib/auth';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const [values, setValues] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const onLogin = async () => {
-    const res = await loginUser(values.email, values.password);
-    if (!res.ok) return setError(res.message ?? 'Request failed.');
-    setError('');
-    router.replace('/dashboard');
-  };
-
+  useEffect(() => subscribeToAuthState((user) => {
+    if (user) router.replace('/dashboard');
+  }), [router]);
 
   const onGoogleLogin = async () => {
+    setLoading(true);
     const res = await loginWithGoogle();
+    setLoading(false);
     if (!res.ok) return setError(res.message ?? 'Google login failed.');
     setError('');
     router.replace('/dashboard');
   };
+
   return (
     <AuthScreen
       title="Welcome Back"
-      subtitle="Sign in to continue"
-      fields={[{ key: 'email', label: 'Email' }, { key: 'password', label: 'Password', secure: true }]}
-      values={values}
-      onChange={(key, value) => setValues((s) => ({ ...s, [key]: value }))}
-      helper="Forgot Password?"
-      primaryLabel="Login"
-      onPrimaryPress={onLogin}
+      subtitle="Google Sign-In only • secure Firebase auth"
+      fields={[]}
+      values={{}}
+      onChange={() => {}}
+      helper={loading ? 'Signing in…' : 'Use your Google account to continue'}
+      primaryLabel="Continue"
+      onPrimaryPress={onGoogleLogin}
       onGooglePress={onGoogleLogin}
-      footerLead="Don't have an account?"
-      footerAction="Sign Up"
+      footerLead="Need access?"
+      footerAction="Contact admin"
       footerHref="/register"
       error={error}
     />
