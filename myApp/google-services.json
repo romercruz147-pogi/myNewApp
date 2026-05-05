@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "807423195952",
+    "project_id": "esp-32-iot-39bd2",
+    "storage_bucket": "esp-32-iot-39bd2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:807423195952:android:ae76244f70701e4b29e6f5",
+        "android_client_info": {
+          "package_name": "com.cruzesp32.iotcontrol"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "807423195952-aoq1ge24jrfr0ic7ral9m2r2imeh14aj.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCtLJvzqp1HM9hxFjumNGbJx83l2amkbJQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "807423195952-aoq1ge24jrfr0ic7ral9m2r2imeh14aj.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
