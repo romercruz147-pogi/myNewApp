@@ -18,6 +18,7 @@ const nav = [
   { href: '/devices' as const, label: 'Devices' },
   { href: '/analytics' as const, label: 'Analytics' },
   { href: '/settings' as const, label: 'Settings' },
+  { href: '/romers-vendo' as const, label: 'Romers Vendo' },
 ];
 
 export function AppShell({ title, children }: { title: string; children: ReactNode }) {
