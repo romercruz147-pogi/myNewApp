@@ -5,6 +5,7 @@
 #include <Preferences.h>
 #include <ArduinoJson.h>
 #include <LiquidCrystal_I2C.h>
+#include <HTTPClient.h>
 
 // LCD initialization
 LiquidCrystal_I2C lcd(0x27, 16, 2);
@@ -16,6 +17,13 @@ Preferences prefs;
 String adminUser = "admin";
 String adminPass = "1234";
 String sessionToken = "";
+
+// Device identity and cloud-link metadata (Blynk-style pairing extension)
+String deviceId = "";
+String deviceToken = "";
+String backendUrl = "";
+bool wifiStaEnabled = true;
+unsigned long lastCloudHeartbeat = 0;
 
 // WiFi Configuration
 const char* setupApSsid = "Romers-Vendo-Setup";
@@ -67,6 +75,11 @@ static unsigned long lastValidPulse = 0;
 
 // ===== HELPER FUNCTIONS =====
 
+bool hasBearerToken(const String& token) {
+  String auth = server.header("Authorization");
+  return token.length() > 0 && auth == ("Bearer " + token);
+}
+
 void addCorsHeaders() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
   server.sendHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
@@ -74,9 +87,7 @@ void addCorsHeaders() {
 }
 
 bool isAuthorizedRequest() {
-  if (sessionToken.length() == 0) return false;
-  String auth = server.header("Authorization");
-  return auth == ("Bearer " + sessionToken);
+  return hasBearerToken(sessionToken) || hasBearerToken(deviceToken);
 }
 
 void updateSSR() {
@@ -86,11 +97,72 @@ void updateSSR() {
 void saveState() {
   prefs.putLong("credits", credits);
   prefs.putLong("time", timeRemaining);
+  prefs.putLong("totalTime", totalTime);
   prefs.putInt("sales", salesToday);
   prefs.putInt("totalEarn", totalEarnings);
   prefs.putBool("running", isActive);
   prefs.putInt("minC", minCreditsToStart);
   prefs.putInt("secMin", secondsForMinCredits);
+}
+
+String randomHex(uint8_t bytes) {
+  String out = "";
+  for (uint8_t i = 0; i < bytes; i++) {
+    uint8_t value = (uint8_t)(esp_random() & 0xFF);
+    if (value < 16) out += "0";
+    out += String(value, HEX);
+  }
+  out.toUpperCase();
+  return out;
+}
+
+void loadDeviceIdentity() {
+  deviceId = prefs.getString("device_id", "");
+  deviceToken = prefs.getString("dev_token", "");
+  adminUser = prefs.getString("admin_user", adminUser);
+  adminPass = prefs.getString("admin_pass", adminPass);
+  backendUrl = prefs.getString("backend", "");
+  wifiStaEnabled = prefs.getBool("wifi_on", true);
+
+  if (deviceId.length() == 0) {
+    uint64_t mac = ESP.getEfuseMac();
+    char macPart[13];
+    snprintf(macPart, sizeof(macPart), "%04X%08X", (uint16_t)(mac >> 32), (uint32_t)mac);
+    deviceId = "RV-" + String(macPart) + "-" + randomHex(2);
+    prefs.putString("device_id", deviceId);
+  }
+
+  if (deviceToken.length() == 0) {
+    deviceToken = randomHex(16);
+    prefs.putString("dev_token", deviceToken);
+  }
+}
+
+void sendCloudHeartbeat() {
+  if (backendUrl.length() == 0 || WiFi.status() != WL_CONNECTED) return;
+  if (millis() - lastCloudHeartbeat < 15000) return;
+  lastCloudHeartbeat = millis();
+
+  HTTPClient http;
+  http.begin(backendUrl);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-Id", deviceId);
+  http.addHeader("X-Device-Token", deviceToken);
+
+  DynamicJsonDocument doc(768);
+  doc["deviceId"] = deviceId;
+  doc["remainingTime"] = timeRemaining;
+  doc["totalTimeUsed"] = totalTime;
+  doc["salesToday"] = salesToday;
+  doc["totalEarnings"] = totalEarnings;
+  doc["isActive"] = isActive;
+  doc["wifiConnected"] = true;
+  doc["wifiSignal"] = WiFi.RSSI();
+  doc["ip"] = WiFi.localIP().toString();
+  String body;
+  serializeJson(doc, body);
+  http.POST(body);
+  http.end();
 }
 
 void refreshLCD() {
@@ -209,6 +281,11 @@ void startSetupAP() {
 }
 
 bool connectStationWifi() {
+  if (!wifiStaEnabled) {
+    Serial.println("[STA] Station WiFi disabled by app setting.");
+    return false;
+  }
+
   if (staSsid.length() == 0) {
     Serial.println("[STA] No saved credentials.");
     return false;
@@ -423,6 +500,8 @@ const char index_html[] PROGMEM = R"rawliteral(
         <div class="metric"><strong>Total Time</strong><span id="totalTime">--</span></div>
         <div class="metric"><strong>Active</strong><span id="isActive">--</span></div>
         <div class="metric"><strong>IP</strong><span id="ipAddress">--</span></div>
+        <div class="metric"><strong>Device ID</strong><span id="deviceId">--</span></div>
+        <div class="metric"><strong>Pairing Token</strong><span id="deviceToken">--</span></div>
       </div>
     </section>
 
@@ -519,18 +598,22 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     async function pollStatus() {
       try {
-        const [statusResponse, wifiResponse] = await Promise.all([
+        const [statusResponse, wifiResponse, deviceResponse] = await Promise.all([
           fetch('/status'),
-          fetch('/api/wifi-status')
+          fetch('/api/wifi-status'),
+          fetch('/api/device-info')
         ]);
         const status = await statusResponse.json();
         const wifi = await wifiResponse.json();
+        const device = await deviceResponse.json();
 
         document.getElementById('money').textContent = status.money ?? '--';
         document.getElementById('remainingTime').textContent = formatSeconds(status.remainingTime);
         document.getElementById('totalTime').textContent = formatSeconds(status.totalTime);
         document.getElementById('isActive').textContent = status.isActive ? 'Yes' : 'No';
         document.getElementById('ipAddress').textContent = status.ip || wifi.ip || '--';
+        document.getElementById('deviceId').textContent = device.deviceId || status.deviceId || '--';
+        document.getElementById('deviceToken').textContent = device.deviceToken || status.deviceToken || '--';
         document.getElementById('wifiStatus').textContent = wifi.connected
           ? `Connected to ${wifi.ssid} at ${wifi.ip}`
           : `Setup mode: connect to ${wifi.ssid} at ${wifi.ip}`;
@@ -566,8 +649,10 @@ void handleAuth() {
     return;
   }
   sessionToken = String(millis()) + "-" + String(random(100000, 999999));
-  DynamicJsonDocument res(128);
+  DynamicJsonDocument res(384);
   res["token"] = sessionToken;
+  res["deviceId"] = deviceId;
+  res["deviceToken"] = deviceToken;
   String out;
   serializeJson(res, out);
   server.send(200, "application/json", out);
@@ -575,11 +660,23 @@ void handleAuth() {
 
 void handleStatus() {
   addCorsHeaders();
-  DynamicJsonDocument doc(512);
+  DynamicJsonDocument doc(768);
+  doc["deviceId"] = deviceId;
+  doc["deviceToken"] = deviceToken;
   doc["money"] = credits;
+  doc["moneyInserted"] = credits;
+  doc["credits"] = credits;
   doc["remainingTime"] = timeRemaining;
   doc["totalTime"] = totalTime;
+  doc["totalTimeUsed"] = totalTime;
   doc["isActive"] = isActive;
+  doc["salesToday"] = salesToday;
+  doc["totalEarnings"] = totalEarnings;
+  doc["minCreditsToStart"] = minCreditsToStart;
+  doc["secondsForMinCredits"] = secondsForMinCredits;
+  doc["wifiConnected"] = WiFi.status() == WL_CONNECTED;
+  doc["wifiSignal"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+  doc["connectionStatus"] = WiFi.status() == WL_CONNECTED ? "online" : "setup-ap";
   doc["ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
   String out;
   serializeJson(doc, out);
@@ -652,6 +749,143 @@ void handleRemoveTime() {
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
+void handleUpdateSettings() {
+  addCorsHeaders();
+  if (!isAuthorizedRequest()) {
+    server.send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+    return;
+  }
+  if (!server.hasArg("plain")) {
+    server.send(400, "application/json", "{\"error\":\"Missing body\"}");
+    return;
+  }
+  DynamicJsonDocument doc(256);
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+    return;
+  }
+  int nextMinCredits = doc["minCreditsToStart"] | minCreditsToStart;
+  int nextSeconds = doc["secondsForMinCredits"] | secondsForMinCredits;
+  if (doc.containsKey("secondsForMinCredit")) nextSeconds = doc["secondsForMinCredit"];
+  if (nextMinCredits < 1 || nextSeconds < 1) {
+    server.send(400, "application/json", "{\"error\":\"Pricing values must be positive\"}");
+    return;
+  }
+  minCreditsToStart = nextMinCredits;
+  secondsForMinCredits = nextSeconds;
+  saveState();
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void handleWifiControl() {
+  addCorsHeaders();
+  if (!isAuthorizedRequest()) {
+    server.send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+    return;
+  }
+  if (!server.hasArg("plain")) {
+    server.send(400, "application/json", "{\"error\":\"Missing body\"}");
+    return;
+  }
+  DynamicJsonDocument doc(256);
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+    return;
+  }
+  wifiStaEnabled = doc["enabled"] | true;
+  prefs.putBool("wifi_on", wifiStaEnabled);
+  if (wifiStaEnabled) {
+    connectStationWifi();
+  } else {
+    WiFi.disconnect(false);
+    inSetupMode = true;
+    if (!setupApStarted) startSetupAP();
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void handleDeviceInfo() {
+  addCorsHeaders();
+  DynamicJsonDocument doc(512);
+  doc["deviceId"] = deviceId;
+  doc["deviceToken"] = deviceToken;
+  doc["ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
+  doc["setupIp"] = WiFi.softAPIP().toString();
+  doc["ssid"] = setupApSsid;
+  String out;
+  serializeJson(doc, out);
+  server.send(200, "application/json", out);
+}
+
+void handleConfigAuth() {
+  addCorsHeaders();
+  if (!isAuthorizedRequest()) {
+    server.send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+    return;
+  }
+  if (!server.hasArg("plain")) {
+    server.send(400, "application/json", "{\"error\":\"Missing body\"}");
+    return;
+  }
+  DynamicJsonDocument doc(512);
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+    return;
+  }
+  String nextUser = doc["username"] | adminUser;
+  String nextPass = doc["password"] | adminPass;
+  String nextBackend = doc["backendUrl"] | backendUrl;
+  if (nextUser.length() == 0 || nextPass.length() == 0) {
+    server.send(400, "application/json", "{\"error\":\"Username and password are required\"}");
+    return;
+  }
+  adminUser = nextUser;
+  adminPass = nextPass;
+  backendUrl = nextBackend;
+  prefs.putString("admin_user", adminUser);
+  prefs.putString("admin_pass", adminPass);
+  prefs.putString("backend", backendUrl);
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void handleVendoState() {
+  handleStatus();
+}
+
+void handleVendoUpdateTime() {
+  addCorsHeaders();
+  if (!isAuthorizedRequest()) {
+    server.send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+    return;
+  }
+  if (!server.hasArg("plain")) {
+    server.send(400, "application/json", "{\"error\":\"Missing body\"}");
+    return;
+  }
+  DynamicJsonDocument doc(256);
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+    return;
+  }
+  long delta = doc["delta"] | 0;
+  if (delta >= 0) {
+    timeRemaining += delta;
+    isActive = true;
+  } else {
+    long seconds = -delta;
+    if (timeRemaining > seconds) {
+      timeRemaining -= seconds;
+    } else {
+      timeRemaining = 0;
+    }
+    if (timeRemaining <= 0) isActive = false;
+  }
+  saveState();
+  lastLCDUpdate = 0;
+  refreshLCD();
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
 void handleScanNetworks() {
   addCorsHeaders();
   // FIX: In WIFI_AP mode switch to AP_STA for scanning, then restore AP config
@@ -704,6 +938,8 @@ void handleSetupWifi() {
     server.send(400, "application/json", "{\"error\":\"SSID required\"}");
     return;
   }
+  wifiStaEnabled = true;
+  prefs.putBool("wifi_on", true);
   saveWifiCredentials(ssid, pass);
   DynamicJsonDocument res(256);
   res["ok"] = true;
@@ -771,10 +1007,19 @@ void setupHttpServer() {
   server.on("/ncsi.txt", HTTP_GET, serveSetupPortal);
   server.on("/redirect", HTTP_GET, serveSetupPortal);
   server.on("/auth", HTTP_POST, handleAuth);
+  server.on("/login", HTTP_POST, handleAuth);
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/control/reset-money", HTTP_POST, handleResetMoney);
   server.on("/control/add-time", HTTP_POST, handleAddTime);
   server.on("/control/remove-time", HTTP_POST, handleRemoveTime);
+  server.on("/control/settings", HTTP_POST, handleUpdateSettings);
+  server.on("/control/wifi", HTTP_POST, handleWifiControl);
+  server.on("/device/info", HTTP_GET, handleDeviceInfo);
+  server.on("/api/device-info", HTTP_GET, handleDeviceInfo);
+  server.on("/api/config-auth", HTTP_POST, handleConfigAuth);
+  server.on("/vendo/state", HTTP_GET, handleVendoState);
+  server.on("/vendo/reset-money", HTTP_POST, handleResetMoney);
+  server.on("/vendo/update-time", HTTP_POST, handleVendoUpdateTime);
   server.on("/api/scan-networks", HTTP_GET, handleScanNetworks);
   server.on("/api/setup-wifi", HTTP_POST, handleSetupWifi);
   server.on("/api/wifi-status", HTTP_GET, handleWifiStatus);
@@ -797,8 +1042,10 @@ void setup() {
   lcd.backlight();
 
   prefs.begin("pisowash", false);
+  loadDeviceIdentity();
   credits = prefs.getLong("credits", 0);
   timeRemaining = prefs.getLong("time", 0);
+  totalTime = prefs.getLong("totalTime", 0);
   salesToday = prefs.getInt("sales", 0);
   totalEarnings = prefs.getInt("totalEarn", 0);
   isActive = prefs.getBool("running", false);
@@ -814,7 +1061,7 @@ void setup() {
   //      This way if STA fails the AP is still broadcasting — no blind spot.
   startSetupAP();
 
-  if (staSsid.length() > 0) {
+  if (wifiStaEnabled && staSsid.length() > 0) {
     if (connectStationWifi()) {
       inSetupMode = false;
     } else {
@@ -858,7 +1105,9 @@ void loop() {
     ensureSetupAP();
   }
 
-  if (!inSetupMode && millis() - lastWifiCheck > 10000) {
+  sendCloudHeartbeat();
+
+  if (wifiStaEnabled && !inSetupMode && millis() - lastWifiCheck > 10000) {
     lastWifiCheck = millis();
     if (WiFi.status() != WL_CONNECTED) {
       wifiFailCount++;
@@ -925,6 +1174,7 @@ void loop() {
     lastTick = millis();
     if (timeRemaining > 0) {
       timeRemaining--;
+      totalTime++;
     }
     if (timeRemaining <= 0) {
       isActive = false;
