@@ -1,5 +1,6 @@
 #include <WiFi.h>
 #include <WebServer.h>
+#include <DNSServer.h>
 #include <Wire.h>
 #include <Preferences.h>
 #include <ArduinoJson.h>
@@ -8,6 +9,7 @@
 // LCD initialization
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 WebServer server(80);
+DNSServer dnsServer;
 Preferences prefs;
 
 // Authentication
@@ -18,7 +20,12 @@ String sessionToken = "";
 // WiFi Configuration
 const char* setupApSsid = "Romers-Vendo-Setup";
 const char* setupApPass = "12345678";
+const byte DNS_PORT = 53;
+IPAddress setupApIp(192, 168, 4, 1);
+IPAddress setupApGateway(192, 168, 4, 1);
+IPAddress setupApSubnet(255, 255, 255, 0);
 bool inSetupMode = false;
+bool setupApStarted = false;
 int wifiFailCount = 0;
 unsigned long lastWifiCheck = 0;
 
@@ -124,27 +131,87 @@ void saveWifiCredentials(const String& ssid, const String& pass) {
 }
 
 bool connectStationWifi() {
-  if (staSsid.length() == 0) return false;
+  if (staSsid.length() == 0) {
+    Serial.println("No saved WiFi credentials. Starting setup hotspot.");
+    return false;
+  }
+
+  inSetupMode = false;
+  setupApStarted = false;
+  WiFi.setSleep(false);
   WiFi.mode(WIFI_STA);
+  delay(200);
+  WiFi.disconnect(false);
+  delay(200);
   WiFi.begin(staSsid.c_str(), staPass.c_str());
+
+  Serial.print("Connecting to WiFi SSID: ");
+  Serial.println(staSsid);
   unsigned long start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < 20000) {
     delay(300);
+    Serial.print(".");
   }
+  Serial.println();
+
   if (WiFi.status() == WL_CONNECTED) {
+    wifiFailCount = 0;
     Serial.print("Connected IP: http://");
     Serial.println(WiFi.localIP());
     return true;
   }
+
+  Serial.println("WiFi connection failed. Setup hotspot fallback required.");
+  WiFi.disconnect(false);
   return false;
+}
+
+bool startSoftAPWithCurrentMode() {
+  if (!WiFi.softAPConfig(setupApIp, setupApGateway, setupApSubnet)) {
+    Serial.println("WARNING: softAPConfig failed; continuing with default AP network.");
+  }
+
+  if (String(setupApPass).length() >= 8) {
+    return WiFi.softAP(setupApSsid, setupApPass);
+  }
+
+  return WiFi.softAP(setupApSsid);
 }
 
 void startSetupAP() {
   inSetupMode = true;
+  WiFi.setSleep(false);
+  WiFi.disconnect(false);
   WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP(setupApSsid, setupApPass);
-  Serial.print("Setup AP IP: http://");
-  Serial.println(WiFi.softAPIP());
+  delay(500);
+
+  Serial.print("Starting setup hotspot: ");
+  Serial.println(setupApSsid);
+
+  setupApStarted = startSoftAPWithCurrentMode();
+  if (!setupApStarted) {
+    Serial.println("WARNING: WIFI_AP_STA hotspot start failed. Retrying in WIFI_AP mode.");
+    WiFi.softAPdisconnect(true);
+    delay(500);
+    WiFi.mode(WIFI_AP);
+    delay(500);
+    setupApStarted = startSoftAPWithCurrentMode();
+  }
+
+  delay(500);
+  if (setupApStarted) {
+    dnsServer.stop();
+    dnsServer.start(DNS_PORT, "*", setupApIp);
+    Serial.println("Setup hotspot started successfully.");
+    Serial.print("Setup AP SSID: ");
+    Serial.println(setupApSsid);
+    Serial.print("Setup AP IP: http://");
+    Serial.println(WiFi.softAPIP());
+    Serial.print("Setup AP clients: ");
+    Serial.println(WiFi.softAPgetStationNum());
+  } else {
+    Serial.println("ERROR: Setup hotspot failed to start.");
+  }
 }
 
 
@@ -517,8 +584,24 @@ void handleRemoveTime() {
 
 void handleScanNetworks() {
   addCorsHeaders();
-  int n = WiFi.scanNetworks();
-  DynamicJsonDocument doc(2048);
+  if (inSetupMode && WiFi.getMode() == WIFI_AP) {
+    WiFi.mode(WIFI_AP_STA);
+    delay(300);
+    if (!setupApStarted) {
+      setupApStarted = startSoftAPWithCurrentMode();
+      delay(300);
+    }
+  }
+
+  int n = WiFi.scanNetworks(false, true);
+  if (n < 0) {
+    Serial.print("WiFi scan failed: ");
+    Serial.println(n);
+    server.send(500, "application/json", "{\"error\":\"Network scan failed\"}");
+    return;
+  }
+
+  DynamicJsonDocument doc(3072);
   JsonArray networks = doc.createNestedArray("networks");
   for (int i = 0; i < n; i++) {
     JsonObject net = networks.createNestedObject();
@@ -529,6 +612,7 @@ void handleScanNetworks() {
   }
   String out;
   serializeJson(doc, out);
+  WiFi.scanDelete();
   server.send(200, "application/json", out);
 }
 
@@ -593,11 +677,16 @@ void handleNotFound() {
   server.send(404, "application/json", "{\"error\":\"Not found\"}");
 }
 
+void serveSetupPortal() {
+  addCorsHeaders();
+  server.send_P(200, "text/html", index_html);
+}
+
 void setupHttpServer() {
-  server.on("/", HTTP_GET, []() {
-    addCorsHeaders();
-    server.send_P(200, "text/html", index_html);
-  });
+  server.on("/", HTTP_GET, serveSetupPortal);
+  server.on("/generate_204", HTTP_GET, serveSetupPortal);
+  server.on("/hotspot-detect.html", HTTP_GET, serveSetupPortal);
+  server.on("/connecttest.txt", HTTP_GET, serveSetupPortal);
   server.on("/auth", HTTP_POST, handleAuth);
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/control/reset-money", HTTP_POST, handleResetMoney);
@@ -608,6 +697,7 @@ void setupHttpServer() {
   server.on("/api/wifi-status", HTTP_GET, handleWifiStatus);
   server.onNotFound(handleNotFound);
   server.begin();
+  Serial.println("HTTP server started on port 80.");
 }
 
 // ===== MAIN SETUP =====
@@ -658,11 +748,16 @@ void setup() {
 void loop() {
   server.handleClient();
 
+  if (inSetupMode) {
+    dnsServer.processNextRequest();
+  }
+
   if (!inSetupMode && millis() - lastWifiCheck > 10000) {
     lastWifiCheck = millis();
     if (WiFi.status() != WL_CONNECTED) {
       wifiFailCount++;
-      WiFi.disconnect();
+      WiFi.disconnect(false);
+      delay(100);
       WiFi.begin(staSsid.c_str(), staPass.c_str());
       if (wifiFailCount >= 6) {
         startSetupAP();
