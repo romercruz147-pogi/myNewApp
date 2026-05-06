@@ -141,10 +141,9 @@ bool connectStationWifi() {
   }
 
   inSetupMode = false;
-  setupApStarted = false;
   WiFi.setSleep(false);
-  WiFi.mode(WIFI_STA);
-  delay(200);
+  WiFi.mode(setupApStarted ? WIFI_AP_STA : WIFI_STA);
+  delay(500);
   WiFi.disconnect(false);
   delay(200);
   WiFi.begin(staSsid.c_str(), staPass.c_str());
@@ -237,12 +236,14 @@ void startSetupAP() {
 }
 
 void ensureSetupAP() {
-  if (!inSetupMode || millis() - lastApHealthCheck < 30000) return;
+  if (millis() - lastApHealthCheck < 30000) return;
   lastApHealthCheck = millis();
 
   if (!setupApStarted || !setupApIpIsValid()) {
     Serial.println("WARNING: Setup hotspot health check failed. Restarting hotspot.");
+    bool wasInSetupMode = inSetupMode;
     startSetupAP();
+    inSetupMode = wasInSetupMode;
   } else {
     Serial.print("Setup hotspot active at http://");
     Serial.print(WiFi.softAPIP());
@@ -762,8 +763,14 @@ void setup() {
   if (timeRemaining <= 0) isActive = false;
 
   loadWifiCredentials();
-  if (!connectStationWifi()) {
-    startSetupAP();
+  startSetupAP();
+  if (connectStationWifi()) {
+    inSetupMode = false;
+  } else {
+    inSetupMode = true;
+    if (!setupApStarted || !setupApIpIsValid()) {
+      startSetupAP();
+    }
   }
 
   if (WiFi.status() == WL_CONNECTED) {
@@ -785,7 +792,7 @@ void setup() {
 void loop() {
   server.handleClient();
 
-  if (inSetupMode) {
+  if (setupApStarted) {
     dnsServer.processNextRequest();
     ensureSetupAP();
   }
@@ -795,6 +802,8 @@ void loop() {
     if (WiFi.status() != WL_CONNECTED) {
       wifiFailCount++;
       WiFi.disconnect(false);
+      delay(100);
+      WiFi.mode(setupApStarted ? WIFI_AP_STA : WIFI_STA);
       delay(100);
       WiFi.begin(staSsid.c_str(), staPass.c_str());
       if (wifiFailCount >= 6) {
