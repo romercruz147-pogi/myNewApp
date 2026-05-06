@@ -69,7 +69,7 @@ export default function Dashboard() {
 
         <Text style={styles.heading}>ESP32 Devices</Text>
         {devices.length === 0 ? (
-          <View style={styles.card}><Text style={styles.meta}>No devices yet. Open Secure Connection to generate an app-owned Device ID and deviceSecret.</Text></View>
+          <View style={styles.card}><Text style={styles.meta}>No devices yet. Add an ESP32 device to begin monitoring connection status and usage.</Text></View>
         ) : devices.map((device) => {
           const connected = isDeviceConnected(device);
           return (
