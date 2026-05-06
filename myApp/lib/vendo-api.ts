@@ -1,3 +1,5 @@
+import React from 'react';
+
 // Quick API Reference for ESP32 Vending Machine
 
 // ============================================
@@ -229,7 +231,7 @@ export function useVendoAPI(ip: string, token: string | null) {
   return {
     status,
     loading,
-    addTime: (s) => addTime(ip, token!, s),
+    addTime: (s: number) => addTime(ip, token!, s),
     resetMoney: () => resetMoney(ip, token!),
     toggleMachine: () => toggleMachine(ip, token!),
     refresh,

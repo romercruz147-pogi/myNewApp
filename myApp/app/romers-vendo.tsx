@@ -27,7 +27,7 @@ export default function RomersVendoLogin() {
       const auth = await esp32Api.authenticate(ipAddress, username, password);
       const status = await esp32Api.getStatus(auth.baseUrl, auth.token);
       const deviceId = status.deviceId || auth.deviceId || `manual-${auth.baseUrl.replace(/\W/g, '-')}`;
-      const deviceToken = status.deviceToken || auth.deviceToken;
+      const deviceSecret = status.deviceSecret || auth.deviceSecret;
 
       if (user?.uid) {
         await upsertEsp32Device(user.uid, {
@@ -35,7 +35,7 @@ export default function RomersVendoLogin() {
           username: username.trim(),
           authToken: auth.token,
           deviceId,
-          deviceToken,
+          deviceSecret,
           name: `Romers Vendo ${deviceId.slice(-6)}`,
           remainingTime: Number(status.remainingTime ?? 0),
           totalTimeUsed: Number(status.totalTimeUsed ?? status.totalTime ?? 0),
@@ -48,7 +48,7 @@ export default function RomersVendoLogin() {
 
       router.push({
         pathname: '/vendo-control',
-        params: { ip: auth.baseUrl, username: username.trim(), token: auth.token, deviceId, deviceToken },
+        params: { ip: auth.baseUrl, username: username.trim(), token: auth.token, deviceId, deviceSecret },
       });
     } catch (error) {
       Alert.alert('Connection failed', error instanceof Error ? error.message : 'Could not connect to ESP32 device.');

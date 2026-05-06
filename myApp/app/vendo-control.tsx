@@ -4,12 +4,12 @@ import { useLocalSearchParams } from 'expo-router';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { AppShell } from '@/components/app-shell';
 import { palette } from '@/components/theme';
-import { esp32Api, updatePairedDevice } from '@/lib/esp32-device-api';
+import { esp32Api, updateConnectedDevice } from '@/lib/esp32-device-api';
 import { db } from '@/lib/firebase';
 
 type VendoState = {
   deviceId?: string;
-  deviceToken?: string;
+  deviceSecret?: string;
   moneyInserted: number;
   remainingTime: number;
   totalTimeUsed: number;
@@ -37,23 +37,23 @@ const defaultState: VendoState = {
 };
 
 export default function VendoControl() {
-  const { ip, token, deviceId, deviceToken, uid, deviceDocId } = useLocalSearchParams<{ ip?: string; token?: string; deviceId?: string; deviceToken?: string; uid?: string; deviceDocId?: string }>();
-  const [state, setState] = useState<VendoState>({ ...defaultState, deviceId, deviceToken });
+  const { ip, token, deviceId, deviceSecret, uid, deviceDocId } = useLocalSearchParams<{ ip?: string; token?: string; deviceId?: string; deviceSecret?: string; uid?: string; deviceDocId?: string }>();
+  const [state, setState] = useState<VendoState>({ ...defaultState, deviceId, deviceSecret });
   const [timeDelta, setTimeDelta] = useState('');
   const [pesoAmount, setPesoAmount] = useState('1');
   const [minutesAmount, setMinutesAmount] = useState('1');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [wifiEnabled, setWifiEnabled] = useState(true);
-  const activeDeviceToken = token || deviceToken;
+  const activeDeviceSecret = token || deviceSecret;
 
   const fetchState = useCallback(async () => {
     if (!ip) return;
     try {
-      const data = await esp32Api.getStatus(ip, activeDeviceToken);
+      const data = await esp32Api.getStatus(ip, activeDeviceSecret);
       setState({
         deviceId: data?.deviceId || deviceId,
-        deviceToken: data?.deviceToken || deviceToken,
+        deviceSecret: data?.deviceSecret || deviceSecret,
         moneyInserted: Number(data?.moneyInserted ?? data?.money ?? data?.credits ?? 0),
         remainingTime: Number(data?.remainingTime ?? 0),
         totalTimeUsed: Number(data?.totalTimeUsed ?? data?.totalTime ?? 0),
@@ -68,9 +68,9 @@ export default function VendoControl() {
       });
       setWifiEnabled(Boolean(data?.wifiConnected));
       if (uid && (data?.deviceId || deviceId)) {
-        await updatePairedDevice(uid, String(data?.deviceId || deviceId), {
+        await updateConnectedDevice(uid, String(data?.deviceId || deviceId), {
           ip: data?.ip ? esp32Api.normalizeBaseUrl(String(data.ip)) : esp32Api.normalizeBaseUrl(ip),
-          deviceToken: String(data?.deviceToken || deviceToken || activeDeviceToken || ''),
+          deviceSecret: String(data?.deviceSecret || deviceSecret || activeDeviceSecret || ''),
           status: 'Connected',
           connectionStatus: 'Connected',
           isConnected: true,
@@ -95,13 +95,13 @@ export default function VendoControl() {
     } catch (error) {
       setState((current) => ({ ...current, connectionStatus: 'Offline / Unreachable', wifiConnected: false }));
       if (uid && deviceId) {
-        await updatePairedDevice(uid, deviceId, { status: 'Disconnected', connectionStatus: 'Disconnected', isConnected: false, online: false });
+        await updateConnectedDevice(uid, deviceId, { status: 'Disconnected', connectionStatus: 'Disconnected', isConnected: false, online: false });
       }
       Alert.alert('Connection issue', error instanceof Error ? error.message : 'ESP32 is offline or unreachable.');
     } finally {
       setLoading(false);
     }
-  }, [activeDeviceToken, deviceId, deviceToken, ip, uid]);
+  }, [activeDeviceSecret, deviceId, deviceSecret, ip, uid]);
 
   useEffect(() => {
     if (!uid || !(deviceDocId || deviceId)) return;
@@ -112,7 +112,7 @@ export default function VendoControl() {
       setState((current) => ({
         ...current,
         deviceId: String(data.deviceId ?? current.deviceId ?? ''),
-        deviceToken: String(data.deviceToken ?? current.deviceToken ?? ''),
+        deviceSecret: String(data.deviceSecret ?? current.deviceSecret ?? ''),
         moneyInserted: Number(data.moneyInserted ?? data.money ?? current.moneyInserted),
         remainingTime: Number(data.remainingTime ?? current.remainingTime),
         totalTimeUsed: Number(data.totalTimeUsed ?? current.totalTimeUsed),
@@ -137,7 +137,7 @@ export default function VendoControl() {
     if (!ip) return;
     try {
       setSubmitting(true);
-      await esp32Api.resetMoney(ip, activeDeviceToken);
+      await esp32Api.resetMoney(ip, activeDeviceSecret);
       await fetchState();
     } catch (error) {
       Alert.alert('Request failed', error instanceof Error ? error.message : 'Failed to send reset command.');
@@ -155,7 +155,7 @@ export default function VendoControl() {
     }
     try {
       setSubmitting(true);
-      await esp32Api.addTime(ip, activeDeviceToken, seconds);
+      await esp32Api.addTime(ip, activeDeviceSecret, seconds);
       setTimeDelta('');
       await fetchState();
     } catch (error) {
@@ -175,9 +175,9 @@ export default function VendoControl() {
     }
     try {
       setSubmitting(true);
-      await esp32Api.updateSettings(ip, activeDeviceToken, pesos, minutes * 60);
+      await esp32Api.updateSettings(ip, activeDeviceSecret, pesos, minutes * 60);
       if (uid && (state.deviceId || deviceId)) {
-        await updatePairedDevice(uid, String(state.deviceId || deviceId), {
+        await updateConnectedDevice(uid, String(state.deviceId || deviceId), {
           minCreditsToStart: pesos,
           secondsForMinCredits: minutes * 60,
           pricingSettings: {
@@ -200,7 +200,7 @@ export default function VendoControl() {
     if (!ip) return;
     setWifiEnabled(enabled);
     try {
-      await esp32Api.setWifiEnabled(ip, activeDeviceToken, enabled);
+      await esp32Api.setWifiEnabled(ip, activeDeviceSecret, enabled);
       if (enabled) setTimeout(fetchState, 2500);
     } catch (error) {
       setWifiEnabled(!enabled);
@@ -215,7 +215,7 @@ export default function VendoControl() {
           <Text style={styles.heading}>Session Status</Text>
           <Text style={styles.text}>Device IP: {ip ?? 'N/A'}</Text>
           <Text style={styles.text}>Device ID: {state.deviceId || 'N/A'}</Text>
-          <Text style={styles.text}>Pairing Token: {state.deviceToken || 'Hidden until firmware exposes it'}</Text>
+          <Text style={styles.text}>deviceSecret: {state.deviceSecret || 'Hidden until firmware exposes it'}</Text>
           <Text style={styles.text}>Connection: {state.connectionStatus}</Text>
           <Text style={styles.text}>Money Inserted / Credits: ₱{state.moneyInserted}</Text>
           <Text style={styles.text}>Remaining Time: {state.remainingTime}s</Text>
