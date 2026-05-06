@@ -98,6 +98,76 @@ void refreshLCD() {
   }
 }
 
+
+const char MAIN_PAGE_HTML[] PROGMEM = R"HTML(
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Romers Vendo</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b1220;--card:#121a2b;--text:#e6eefb;--muted:#90a4c7;--ok:#1ec28b;--warn:#ffb547;--btn:#2b3b62;--btn2:#3b4f7f}
+    *{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:linear-gradient(160deg,#080d1a,#121a2b 60%,#0c1324);color:var(--text)}
+    .wrap{max-width:860px;margin:0 auto;padding:18px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+    .card{background:var(--card);border:1px solid #1d2a45;border-radius:12px;padding:14px}
+    h1{font-size:1.3rem;margin:.3rem 0 1rem} h2{font-size:.9rem;color:var(--muted);margin:0 0 8px} .v{font-size:1.4rem;font-weight:700}
+    .ok{color:var(--ok)} .warn{color:var(--warn)}
+    .actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-top:12px}
+    button{width:100%;background:var(--btn);border:1px solid #3a4f80;color:var(--text);padding:10px;border-radius:10px;font-weight:600}
+    button:active{transform:scale(.99)} button.alt{background:var(--btn2)}
+    .hint{font-size:.8rem;color:var(--muted);margin-top:10px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Romers Vendo Dashboard</h1>
+    <div class="grid">
+      <div class="card"><h2>Money</h2><div class="v" id="money">0</div></div>
+      <div class="card"><h2>Remaining Time (s)</h2><div class="v" id="remainingTime">0</div></div>
+      <div class="card"><h2>Total Usage Time (s)</h2><div class="v" id="totalTime">0</div></div>
+      <div class="card"><h2>Connection</h2><div class="v ok" id="ip">-</div><div class="hint" id="mode">checking...</div></div>
+    </div>
+    <div class="actions">
+      <button id="resetMoney">Reset Money</button>
+      <button class="alt" id="add60">+60s</button>
+      <button class="alt" id="add300">+300s</button>
+      <button class="alt" id="remove60">-60s</button>
+    </div>
+    <p class="hint">Tip: login from your app first so control actions can reuse your active bearer token.</p>
+  </div>
+<script>
+(() => {
+  const $=id=>document.getElementById(id);
+  const token=localStorage.getItem('vendo_token')||'';
+  const hdr=token?{'Authorization':'Bearer '+token}:{ };
+  async function loadStatus(){
+    try{
+      const r=await fetch('/status');
+      const d=await r.json();
+      $('money').textContent=d.money ?? 0;
+      $('remainingTime').textContent=d.remainingTime ?? 0;
+      $('totalTime').textContent=d.totalTime ?? 0;
+      $('ip').textContent=d.ip || '-';
+      $('mode').textContent=(d.isActive?'Running':'Idle');
+    }catch(_){$('mode').textContent='offline';}
+  }
+  async function postJson(url,body){
+    await fetch(url,{method:'POST',headers:Object.assign({'Content-Type':'application/json'},hdr),body:JSON.stringify(body||{})});
+    loadStatus();
+  }
+  $('resetMoney').onclick=()=>postJson('/control/reset-money',{});
+  $('add60').onclick=()=>postJson('/control/add-time',{seconds:60});
+  $('add300').onclick=()=>postJson('/control/add-time',{seconds:300});
+  $('remove60').onclick=()=>postJson('/control/remove-time',{seconds:60});
+  loadStatus(); setInterval(loadStatus,2000);
+})();
+</script>
+</body>
+</html>
+)HTML";
+
 // ===== NEW: WIFI CREDENTIAL STORAGE =====
 void loadWifiCredentials() {
   staSsid = prefs.getString("wifi_ssid", "");
@@ -305,6 +375,22 @@ void handleAddTime() {
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
+void handleRemoveTime() {
+  addCorsHeaders();
+  if (!isAuthorizedRequest()) { server.send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
+  if (!server.hasArg("plain")) { server.send(400, "application/json", "{\"error\":\"Missing body\"}"); return; }
+  DynamicJsonDocument doc(256);
+  if (deserializeJson(doc, server.arg("plain"))) { server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}"); return; }
+  long seconds = doc["seconds"] | 0;
+  if (seconds < 0) seconds = 0;
+  if (timeRemaining > seconds) timeRemaining -= seconds; else timeRemaining = 0;
+  if (timeRemaining <= 0) isActive = false;
+  saveState();
+  lastLCDUpdate = 0;
+  refreshLCD();
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
 void handleOptions() { addCorsHeaders(); server.send(204); }
 
 void handleWebUi() {
@@ -318,12 +404,22 @@ void handleWebUi() {
 }
 
 void setupHttpServer() {
-  server.on("/", HTTP_GET, [](){ addCorsHeaders(); server.send(200, "application/json", "{\"service\":\"romers-vendo\"}"); });
+  server.on("/", HTTP_GET, [](){
+    addCorsHeaders();
+    String accept = server.header("Accept");
+    if (accept.indexOf("application/json") >= 0) {
+      server.send(200, "application/json", "{\"service\":\"romers-vendo\"}");
+      return;
+    }
+    server.send_P(200, "text/html", MAIN_PAGE_HTML);
+  });
+  server.on("/service", HTTP_GET, [](){ addCorsHeaders(); server.send(200, "application/json", "{\"service\":\"romers-vendo\"}"); });
   server.on("/ui", HTTP_GET, handleWebUi);
   server.on("/auth", HTTP_POST, handleAuth);
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/control/reset-money", HTTP_POST, handleResetMoney);
   server.on("/control/add-time", HTTP_POST, handleAddTime);
+  server.on("/control/remove-time", HTTP_POST, handleRemoveTime);
 
   // WiFi Setup Endpoints (NEW)
   server.on("/setup", HTTP_GET, handleSetupRoot);
