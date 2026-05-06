@@ -62,14 +62,14 @@ export default function Dashboard() {
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.subtitle}>Welcome {user?.name ?? 'User'} • {user?.email ?? ''}</Text>
         <View style={styles.row}>
-          {[`Paired Devices: ${devices.length}`, `Connected: ${connectedCount}`, `Disconnected: ${Math.max(devices.length - connectedCount, 0)}`].map((text) => (
+          {[`Devices: ${devices.length}`, `Connected: ${connectedCount}`, `Disconnected: ${Math.max(devices.length - connectedCount, 0)}`].map((text) => (
             <View key={text} style={styles.summaryCard}><Text style={styles.cardText}>{text}</Text></View>
           ))}
         </View>
 
-        <Text style={styles.heading}>Paired ESP32 Devices</Text>
+        <Text style={styles.heading}>ESP32 Devices</Text>
         {devices.length === 0 ? (
-          <View style={styles.card}><Text style={styles.meta}>No paired devices yet. Open Device Pairing to generate an app-owned Device ID and passkey.</Text></View>
+          <View style={styles.card}><Text style={styles.meta}>No devices yet. Open Secure Connection to generate an app-owned Device ID and deviceSecret.</Text></View>
         ) : devices.map((device) => {
           const connected = isDeviceConnected(device);
           return (
@@ -77,7 +77,7 @@ export default function Dashboard() {
               key={`${device.deviceId ?? device.id}`}
               style={styles.card}
               disabled={!connected}
-              onPress={() => router.push({ pathname: '/vendo-control', params: { uid: user?.uid, deviceDocId: device.id, ip: device.ip, token: device.authToken || device.deviceToken, deviceId: device.deviceId, deviceToken: device.deviceToken } })}>
+              onPress={() => router.push({ pathname: '/vendo-control', params: { uid: user?.uid, deviceDocId: device.id, ip: device.ip, token: device.authToken || device.deviceSecret, deviceId: device.deviceId, deviceSecret: device.deviceSecret } })}>
               <View style={styles.deviceHeader}>
                 <Text style={styles.name}>{device.deviceName ?? device.name ?? 'Romers Vendo'}</Text>
                 <Text style={[styles.badge, connected ? styles.connected : styles.disconnected]}>{connected ? 'Connected' : 'Disconnected'}</Text>
@@ -85,7 +85,7 @@ export default function Dashboard() {
               <Text style={styles.meta}>Device ID: {device.deviceId ?? device.id}</Text>
               <Text style={styles.meta}>Status: {device.status ?? device.connectionStatus ?? 'Waiting for heartbeat'}</Text>
               <Text style={styles.meta}>Money ₱{device.moneyInserted ?? device.money ?? device.salesToday ?? 0} • Remaining {device.remainingTime ?? 0}s • Usage {device.totalTimeUsed ?? 0}s</Text>
-              <Text style={styles.meta}>{connected ? 'Tap to open Device Control / Romers Vendo controls.' : 'Configure the ESP32 with this profile token or wait for the next heartbeat.'}</Text>
+              <Text style={styles.meta}>{connected ? 'Tap to open Device Control / Romers Vendo controls.' : 'Configure the ESP32 with this deviceSecret or wait for the next heartbeat.'}</Text>
             </Pressable>
           );
         })}

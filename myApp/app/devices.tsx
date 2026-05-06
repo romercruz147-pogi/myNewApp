@@ -7,6 +7,19 @@ import { subscribeToAuthState, User } from '@/lib/auth';
 import { collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
+const lastSeenToMillis = (lastSeen: any) => {
+  if (!lastSeen) return 0;
+  if (typeof lastSeen.toMillis === 'function') return lastSeen.toMillis();
+  if (typeof lastSeen.seconds === 'number') return lastSeen.seconds * 1000;
+  if (typeof lastSeen === 'number') return lastSeen;
+  return 0;
+};
+
+const isDeviceConnected = (device: any) => {
+  const heartbeatFresh = Date.now() - lastSeenToMillis(device.lastSeen) < 45000;
+  return Boolean(device.isConnected || device.online || device.isOn || heartbeatFresh) && device.connectionStatus !== 'Disconnected';
+};
+
 export default function Devices() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -24,18 +37,19 @@ export default function Devices() {
       <ScrollView contentContainerStyle={styles.container}>
         {devices.map((d) => {
           const isEsp32 = d.type === 'esp32-vendo' || d.deviceId;
+          const connected = isDeviceConnected(d);
           return (
             <View key={d.id} style={styles.card}>
               <Text style={styles.name}>{d.name}</Text>
               {isEsp32 ? (
                 <>
-                  <Text style={styles.meta}>Device ID {d.deviceId ?? '--'} • {d.connectionStatus ?? (d.online ? 'Online' : 'Offline')}</Text>
+                  <Text style={styles.meta}>Device ID {d.deviceId ?? '--'} • {connected ? 'Connected' : 'Disconnected'}</Text>
                   <Text style={styles.meta}>Remaining {d.remainingTime ?? '--'}s • Usage {d.totalTimeUsed ?? '--'}s</Text>
                   <Text style={styles.meta}>Sales ₱{d.salesToday ?? '--'} • Total ₱{d.totalEarnings ?? '--'}</Text>
                   <Text style={styles.meta}>Pricing ₱{d.minCreditsToStart ?? '--'} = {Math.round((d.secondsForMinCredits ?? 0) / 60) || '--'} min</Text>
                   <Pressable
                     style={styles.button}
-                    onPress={() => router.push({ pathname: '/vendo-control', params: { ip: d.ip, token: d.authToken, deviceId: d.deviceId, deviceToken: d.deviceToken } })}>
+                    onPress={() => router.push({ pathname: '/vendo-control', params: { ip: d.ip, token: d.authToken, deviceId: d.deviceId, deviceSecret: d.deviceSecret } })}>
                     <Text style={styles.buttonText}>Open ESP32 Controls</Text>
                   </Pressable>
                 </>

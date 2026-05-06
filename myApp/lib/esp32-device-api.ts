@@ -14,7 +14,7 @@ import { db } from '@/lib/firebase';
 
 export type Esp32DeviceStatus = {
   deviceId?: string;
-  deviceToken?: string;
+  deviceSecret?: string;
   money?: number;
   moneyInserted?: number;
   credits?: number;
@@ -53,8 +53,7 @@ export type LinkedEsp32Device = {
   username?: string;
   authToken?: string;
   deviceId: string;
-  deviceToken?: string;
-  passkey?: string;
+  deviceSecret?: string;
   backendUrl?: string;
   ownerUid?: string;
   status?: string;
@@ -83,17 +82,21 @@ const defaultPricingSettings: PricingSettings = {
   secondsForMinCredits: 60,
 };
 
+export const DEFAULT_DEVICE_BACKEND_URL = process.env.EXPO_PUBLIC_DEVICE_BACKEND_URL ?? process.env.EXPO_PUBLIC_DEVICE_HEARTBEAT_URL ?? '';
+
 const normalizeBaseUrl = (ipOrUrl: string) => {
   const trimmed = ipOrUrl.trim().replace(/\/+$/, '');
   return trimmed.startsWith('http://') || trimmed.startsWith('https://') ? trimmed : `http://${trimmed}`;
 };
 
-const authHeaders = (token?: string) => (token ? { Authorization: `Bearer ${token}` } : undefined);
+export const normalizeBackendUrl = (url = DEFAULT_DEVICE_BACKEND_URL) => url.trim().replace(/\/+$/, '');
 
-const postJson = async (url: string, token: string | undefined, body?: Record<string, unknown>) => {
+const authHeaders = (deviceSecret?: string) => (deviceSecret ? { Authorization: `Bearer ${deviceSecret}` } : undefined);
+
+const postJson = async (url: string, deviceSecret: string | undefined, body?: Record<string, unknown>) => {
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(authHeaders(token) ?? {}) },
+    headers: { 'Content-Type': 'application/json', ...(authHeaders(deviceSecret) ?? {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await response.json().catch(() => ({}));
@@ -115,7 +118,7 @@ const randomCredential = (prefix: string, bytes: number) => {
 
 export const generateDeviceCredentials = () => ({
   deviceId: randomCredential('RV-', 8),
-  deviceToken: randomCredential('RVT-', 24),
+  deviceSecret: randomCredential('RVS-', 24),
 });
 
 export const esp32Api = {
@@ -129,7 +132,7 @@ export const esp32Api = {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data?.error || 'Invalid ESP32 credentials or login endpoint unavailable.');
-    return { baseUrl, token: String(data?.token ?? ''), deviceId: String(data?.deviceId ?? ''), deviceToken: String(data?.deviceToken ?? '') };
+    return { baseUrl, token: String(data?.token ?? ''), deviceId: String(data?.deviceId ?? ''), deviceSecret: String(data?.deviceSecret ?? '') };
   },
   async getStatus(baseUrl: string, token?: string): Promise<Esp32DeviceStatus> {
     const response = await fetch(`${normalizeBaseUrl(baseUrl)}/status`, { headers: authHeaders(token) });
@@ -141,11 +144,11 @@ export const esp32Api = {
     const baseUrl = normalizeBaseUrl(ipOrUrl);
     const response = await fetch(`${baseUrl}/api/device-info`);
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data?.error || 'Could not read ESP32 pairing information.');
-    return { baseUrl, deviceId: String(data?.deviceId ?? ''), deviceToken: String(data?.deviceToken ?? ''), ip: String(data?.ip ?? '') };
+    if (!response.ok) throw new Error(data?.error || 'Could not read ESP32 device credential information.');
+    return { baseUrl, deviceId: String(data?.deviceId ?? ''), deviceSecret: String(data?.deviceSecret ?? ''), ip: String(data?.ip ?? '') };
   },
-  configurePairing(baseUrl: string, deviceId: string, deviceToken: string, backendUrl?: string, ownerUid?: string, token?: string) {
-    return postJson(`${normalizeBaseUrl(baseUrl)}/api/pairing`, token ?? deviceToken, { deviceId, deviceToken, backendUrl, ownerUid });
+  configureDeviceCredentials(baseUrl: string, deviceId: string, deviceSecret: string, backendUrl?: string, ownerUid?: string, authSecret?: string) {
+    return postJson(`${normalizeBaseUrl(baseUrl)}/api/device-credentials`, authSecret ?? deviceSecret, { deviceId, deviceSecret, backendUrl, ownerUid });
   },
   addTime(baseUrl: string, token: string | undefined, seconds: number) {
     return postJson(`${normalizeBaseUrl(baseUrl)}/control/add-time`, token, { seconds });
@@ -169,7 +172,7 @@ export function getLegacyDeviceRef(deviceDocId: string) {
   return doc(db, 'devices', deviceDocId);
 }
 
-export async function createPairedDeviceProfile(
+export async function createDeviceConnectionProfile(
   uid: string,
   deviceName: string,
   credentials = generateDeviceCredentials(),
@@ -182,12 +185,11 @@ export async function createPairedDeviceProfile(
     name,
     deviceName: name,
     deviceId: credentials.deviceId,
-    deviceToken: credentials.deviceToken,
-    passkey: credentials.deviceToken,
+    deviceSecret: credentials.deviceSecret,
     ip: options.ip ? normalizeBaseUrl(options.ip) : '',
-    backendUrl: options.backendUrl ?? '',
+    backendUrl: normalizeBackendUrl(options.backendUrl ?? DEFAULT_DEVICE_BACKEND_URL),
     ownerUid: uid,
-    status: 'Waiting for ESP32 pairing',
+    status: 'Waiting for ESP32 credentials',
     connectionStatus: 'Disconnected',
     isConnected: false,
     online: false,
@@ -211,10 +213,43 @@ export async function createPairedDeviceProfile(
   return payload;
 }
 
-export async function updatePairedDevice(uid: string, deviceId: string, patch: Partial<LinkedEsp32Device>) {
+export async function updateConnectedDevice(uid: string, deviceId: string, patch: Partial<LinkedEsp32Device>) {
   const payload = { ...patch, updatedAt: serverTimestamp() };
   await setDoc(getUserDeviceRef(uid, deviceId), payload, { merge: true });
   await setDoc(doc(db, 'devices', deviceId), payload, { merge: true });
+}
+
+export async function validateAndConnectDevice(uid: string, deviceId: string, deviceSecret: string, options: { deviceName?: string; backendUrl?: string } = {}) {
+  const cleanDeviceId = deviceId.trim();
+  const cleanDeviceSecret = deviceSecret.trim();
+  if (!cleanDeviceId || !cleanDeviceSecret) throw new Error('Device ID and deviceSecret are required.');
+
+  const globalRef = doc(db, 'devices', cleanDeviceId);
+  const globalSnap = await getDoc(globalRef);
+  if (!globalSnap.exists()) throw new Error('No device exists for that Device ID. Generate it in the app first.');
+
+  const existing = globalSnap.data() as LinkedEsp32Device;
+  if (existing.deviceSecret !== cleanDeviceSecret) throw new Error('Invalid deviceSecret for this Device ID.');
+  if (existing.ownerUid && existing.ownerUid !== uid) throw new Error('This device is already connected to another account.');
+
+  const name = options.deviceName?.trim() || existing.name || existing.deviceName || `Romers Vendo ${cleanDeviceId.slice(-6)}`;
+  const payload = {
+    ...existing,
+    uid,
+    ownerUid: uid,
+    name,
+    deviceName: name,
+    deviceId: cleanDeviceId,
+    deviceSecret: cleanDeviceSecret,
+    backendUrl: normalizeBackendUrl(options.backendUrl ?? existing.backendUrl ?? DEFAULT_DEVICE_BACKEND_URL),
+    status: existing.isConnected ? 'Connected' : 'Waiting for ESP32 heartbeat',
+    connectionStatus: existing.isConnected ? 'Connected' : 'Disconnected',
+    updatedAt: serverTimestamp(),
+  };
+
+  await setDoc(getUserDeviceRef(uid, cleanDeviceId), payload, { merge: true });
+  await setDoc(globalRef, payload, { merge: true });
+  return payload;
 }
 
 export async function upsertEsp32Device(uid: string, device: Omit<LinkedEsp32Device, 'uid' | 'type'>) {
@@ -233,7 +268,6 @@ export async function upsertEsp32Device(uid: string, device: Omit<LinkedEsp32Dev
     type: 'esp32-vendo' as const,
     name,
     deviceName: name,
-    passkey: device.passkey ?? device.deviceToken,
     status: device.status ?? 'Connected',
     isConnected: device.isConnected ?? true,
     online: device.online ?? true,
