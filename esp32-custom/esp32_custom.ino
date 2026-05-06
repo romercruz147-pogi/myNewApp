@@ -21,6 +21,9 @@ String sessionToken = "";
 const char* setupApSsid = "Romers-Vendo-Setup";
 const char* setupApPass = "12345678";
 const byte DNS_PORT = 53;
+const int setupApChannel = 1;
+const bool setupApHidden = false;
+const int setupApMaxConnections = 4;
 IPAddress setupApIp(192, 168, 4, 1);
 IPAddress setupApGateway(192, 168, 4, 1);
 IPAddress setupApSubnet(255, 255, 255, 0);
@@ -28,6 +31,7 @@ bool inSetupMode = false;
 bool setupApStarted = false;
 int wifiFailCount = 0;
 unsigned long lastWifiCheck = 0;
+unsigned long lastApHealthCheck = 0;
 
 String staSsid = "";
 String staPass = "";
@@ -172,45 +176,78 @@ bool startSoftAPWithCurrentMode() {
   }
 
   if (String(setupApPass).length() >= 8) {
-    return WiFi.softAP(setupApSsid, setupApPass);
+    return WiFi.softAP(setupApSsid, setupApPass, setupApChannel, setupApHidden, setupApMaxConnections);
   }
 
-  return WiFi.softAP(setupApSsid);
+  return WiFi.softAP(setupApSsid, NULL, setupApChannel, setupApHidden, setupApMaxConnections);
+}
+
+bool setupApIpIsValid() {
+  IPAddress currentApIp = WiFi.softAPIP();
+  return currentApIp[0] == setupApIp[0] && currentApIp[1] == setupApIp[1] && currentApIp[2] == setupApIp[2] && currentApIp[3] == setupApIp[3];
+}
+
+void logSetupAPStatus() {
+  Serial.println("Setup hotspot started successfully.");
+  Serial.print("Setup AP SSID: ");
+  Serial.println(setupApSsid);
+  Serial.print("Setup AP channel: ");
+  Serial.println(setupApChannel);
+  Serial.print("Setup AP IP: http://");
+  Serial.println(WiFi.softAPIP());
+  Serial.print("Setup AP clients: ");
+  Serial.println(WiFi.softAPgetStationNum());
 }
 
 void startSetupAP() {
   inSetupMode = true;
+  WiFi.persistent(false);
   WiFi.setSleep(false);
   WiFi.disconnect(false);
-  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAPdisconnect(true);
+  delay(500);
+  WiFi.mode(WIFI_OFF);
+  delay(500);
+  WiFi.mode(WIFI_AP);
   delay(500);
 
   Serial.print("Starting setup hotspot: ");
   Serial.println(setupApSsid);
 
   setupApStarted = startSoftAPWithCurrentMode();
-  if (!setupApStarted) {
-    Serial.println("WARNING: WIFI_AP_STA hotspot start failed. Retrying in WIFI_AP mode.");
+  delay(700);
+
+  if (!setupApStarted || !setupApIpIsValid()) {
+    Serial.println("WARNING: WIFI_AP hotspot start failed or IP was not ready. Retrying setup hotspot.");
     WiFi.softAPdisconnect(true);
-    delay(500);
+    delay(700);
     WiFi.mode(WIFI_AP);
-    delay(500);
+    delay(700);
     setupApStarted = startSoftAPWithCurrentMode();
+    delay(700);
   }
 
-  delay(500);
   if (setupApStarted) {
     dnsServer.stop();
     dnsServer.start(DNS_PORT, "*", setupApIp);
-    Serial.println("Setup hotspot started successfully.");
-    Serial.print("Setup AP SSID: ");
-    Serial.println(setupApSsid);
-    Serial.print("Setup AP IP: http://");
-    Serial.println(WiFi.softAPIP());
-    Serial.print("Setup AP clients: ");
-    Serial.println(WiFi.softAPgetStationNum());
+    logSetupAPStatus();
   } else {
     Serial.println("ERROR: Setup hotspot failed to start.");
+  }
+}
+
+void ensureSetupAP() {
+  if (!inSetupMode || millis() - lastApHealthCheck < 30000) return;
+  lastApHealthCheck = millis();
+
+  if (!setupApStarted || !setupApIpIsValid()) {
+    Serial.println("WARNING: Setup hotspot health check failed. Restarting hotspot.");
+    startSetupAP();
+  } else {
+    Serial.print("Setup hotspot active at http://");
+    Serial.print(WiFi.softAPIP());
+    Serial.print(" clients: ");
+    Serial.println(WiFi.softAPgetStationNum());
   }
 }
 
@@ -586,10 +623,10 @@ void handleScanNetworks() {
   addCorsHeaders();
   if (inSetupMode && WiFi.getMode() == WIFI_AP) {
     WiFi.mode(WIFI_AP_STA);
-    delay(300);
-    if (!setupApStarted) {
+    delay(500);
+    if (!setupApIpIsValid()) {
       setupApStarted = startSoftAPWithCurrentMode();
-      delay(300);
+      delay(500);
     }
   }
 
@@ -750,6 +787,7 @@ void loop() {
 
   if (inSetupMode) {
     dnsServer.processNextRequest();
+    ensureSetupAP();
   }
 
   if (!inSetupMode && millis() - lastWifiCheck > 10000) {
