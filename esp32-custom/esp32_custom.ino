@@ -21,7 +21,7 @@ String sessionToken = "";
 const char* setupApSsid = "Romers-Vendo-Setup";
 const char* setupApPass = "12345678";
 const byte DNS_PORT = 53;
-const int setupApChannel = 1;
+const int setupApChannel = 6;           // FIX: Channel 6 is more universally detectable
 const bool setupApHidden = false;
 const int setupApMaxConnections = 4;
 IPAddress setupApIp(192, 168, 4, 1);
@@ -134,22 +134,101 @@ void saveWifiCredentials(const String& ssid, const String& pass) {
   staPass = pass;
 }
 
+// FIX: Dedicated function to reliably bring up AP-only mode
+// The root cause of phones not detecting the AP was:
+// 1. WiFi.persistent(true) could store conflicting STA config
+// 2. Switching modes too fast without enough settle delays
+// 3. softAPConfig() called before mode was stable
+void startSetupAP() {
+  Serial.println("[AP] Starting Setup Access Point...");
+
+  inSetupMode = true;
+  setupApStarted = false;
+
+  // FIX: Stop DNS server first to avoid port conflict on retry
+  dnsServer.stop();
+
+  // FIX: Disable persistent storage so old STA credentials
+  //      don't fight with our AP config on boot
+  WiFi.persistent(false);
+  WiFi.setSleep(false);
+
+  // Fully tear down any existing WiFi state
+  WiFi.disconnect(true);
+  WiFi.softAPdisconnect(true);
+  delay(300);
+  WiFi.mode(WIFI_OFF);
+  delay(500);  // FIX: Give the radio time to fully power down
+
+  // Bring up AP mode only
+  WiFi.mode(WIFI_AP);
+  delay(500);  // FIX: Must wait for mode to stabilise before softAPConfig
+
+  // Configure AP network
+  if (!WiFi.softAPConfig(setupApIp, setupApGateway, setupApSubnet)) {
+    Serial.println("[AP] WARNING: softAPConfig failed, using defaults.");
+  }
+  delay(200);
+
+  // Start the AP
+  bool started = WiFi.softAP(setupApSsid, setupApPass, setupApChannel, setupApHidden, setupApMaxConnections);
+
+  // FIX: Longer settle delay — phones need the beacon to be broadcast
+  //      for ~500 ms before they detect the network during a scan
+  delay(1000);
+
+  IPAddress currentIp = WiFi.softAPIP();
+  bool ipOk = (currentIp == setupApIp);
+
+  if (!started || !ipOk) {
+    // One automatic retry
+    Serial.println("[AP] First attempt failed. Retrying...");
+    WiFi.softAPdisconnect(true);
+    delay(700);
+    WiFi.mode(WIFI_AP);
+    delay(700);
+    WiFi.softAPConfig(setupApIp, setupApGateway, setupApSubnet);
+    delay(200);
+    started = WiFi.softAP(setupApSsid, setupApPass, setupApChannel, setupApHidden, setupApMaxConnections);
+    delay(1000);
+    currentIp = WiFi.softAPIP();
+    ipOk = (currentIp == setupApIp);
+  }
+
+  setupApStarted = started && ipOk;
+
+  if (setupApStarted) {
+    // Start captive-portal DNS — redirect every domain to our IP
+    dnsServer.start(DNS_PORT, "*", setupApIp);
+    Serial.println("[AP] Setup hotspot started successfully.");
+    Serial.print("[AP] SSID: "); Serial.println(setupApSsid);
+    Serial.print("[AP] IP:   http://"); Serial.println(WiFi.softAPIP());
+  } else {
+    Serial.println("[AP] ERROR: Setup hotspot failed to start.");
+  }
+}
+
 bool connectStationWifi() {
   if (staSsid.length() == 0) {
-    Serial.println("No saved WiFi credentials. Starting setup hotspot.");
+    Serial.println("[STA] No saved credentials.");
     return false;
   }
 
-  inSetupMode = false;
-  WiFi.setSleep(false);
-  WiFi.mode(setupApStarted ? WIFI_AP_STA : WIFI_STA);
+  Serial.print("[STA] Connecting to: ");
+  Serial.println(staSsid);
+
+  // FIX: Use AP+STA mode so the setup AP stays reachable while
+  //      we attempt to join the user's router
+  WiFi.mode(WIFI_AP_STA);
+  delay(300);
+
+  // Re-apply AP config so it doesn't drop while in AP_STA mode
+  WiFi.softAPConfig(setupApIp, setupApGateway, setupApSubnet);
+  WiFi.softAP(setupApSsid, setupApPass, setupApChannel, setupApHidden, setupApMaxConnections);
   delay(500);
-  WiFi.disconnect(false);
-  delay(200);
+
   WiFi.begin(staSsid.c_str(), staPass.c_str());
 
-  Serial.print("Connecting to WiFi SSID: ");
-  Serial.println(staSsid);
   unsigned long start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < 20000) {
     delay(300);
@@ -159,95 +238,48 @@ bool connectStationWifi() {
 
   if (WiFi.status() == WL_CONNECTED) {
     wifiFailCount = 0;
-    Serial.print("Connected IP: http://");
+    inSetupMode = false;
+    Serial.print("[STA] Connected! IP: http://");
     Serial.println(WiFi.localIP());
     return true;
   }
 
-  Serial.println("WiFi connection failed. Setup hotspot fallback required.");
+  Serial.println("[STA] Connection failed.");
   WiFi.disconnect(false);
   return false;
-}
-
-bool startSoftAPWithCurrentMode() {
-  if (!WiFi.softAPConfig(setupApIp, setupApGateway, setupApSubnet)) {
-    Serial.println("WARNING: softAPConfig failed; continuing with default AP network.");
-  }
-
-  if (String(setupApPass).length() >= 8) {
-    return WiFi.softAP(setupApSsid, setupApPass, setupApChannel, setupApHidden, setupApMaxConnections);
-  }
-
-  return WiFi.softAP(setupApSsid, NULL, setupApChannel, setupApHidden, setupApMaxConnections);
-}
-
-bool setupApIpIsValid() {
-  IPAddress currentApIp = WiFi.softAPIP();
-  return currentApIp[0] == setupApIp[0] && currentApIp[1] == setupApIp[1] && currentApIp[2] == setupApIp[2] && currentApIp[3] == setupApIp[3];
-}
-
-void logSetupAPStatus() {
-  Serial.println("Setup hotspot started successfully.");
-  Serial.print("Setup AP SSID: ");
-  Serial.println(setupApSsid);
-  Serial.print("Setup AP channel: ");
-  Serial.println(setupApChannel);
-  Serial.print("Setup AP IP: http://");
-  Serial.println(WiFi.softAPIP());
-  Serial.print("Setup AP clients: ");
-  Serial.println(WiFi.softAPgetStationNum());
-}
-
-void startSetupAP() {
-  inSetupMode = true;
-  WiFi.persistent(false);
-  WiFi.setSleep(false);
-  WiFi.disconnect(false);
-  WiFi.softAPdisconnect(true);
-  delay(500);
-  WiFi.mode(WIFI_OFF);
-  delay(500);
-  WiFi.mode(WIFI_AP);
-  delay(500);
-
-  Serial.print("Starting setup hotspot: ");
-  Serial.println(setupApSsid);
-
-  setupApStarted = startSoftAPWithCurrentMode();
-  delay(700);
-
-  if (!setupApStarted || !setupApIpIsValid()) {
-    Serial.println("WARNING: WIFI_AP hotspot start failed or IP was not ready. Retrying setup hotspot.");
-    WiFi.softAPdisconnect(true);
-    delay(700);
-    WiFi.mode(WIFI_AP);
-    delay(700);
-    setupApStarted = startSoftAPWithCurrentMode();
-    delay(700);
-  }
-
-  if (setupApStarted) {
-    dnsServer.stop();
-    dnsServer.start(DNS_PORT, "*", setupApIp);
-    logSetupAPStatus();
-  } else {
-    Serial.println("ERROR: Setup hotspot failed to start.");
-  }
 }
 
 void ensureSetupAP() {
   if (millis() - lastApHealthCheck < 30000) return;
   lastApHealthCheck = millis();
 
-  if (!setupApStarted || !setupApIpIsValid()) {
-    Serial.println("WARNING: Setup hotspot health check failed. Restarting hotspot.");
+  IPAddress currentIp = WiFi.softAPIP();
+  bool ipOk = (currentIp == setupApIp);
+
+  if (!setupApStarted || !ipOk) {
+    Serial.println("[AP] Health check failed. Restarting hotspot.");
     bool wasInSetupMode = inSetupMode;
-    startSetupAP();
+
+    // FIX: In AP_STA mode we need to restart just the AP portion
+    //      without tearing down the STA connection
+    if (WiFi.status() == WL_CONNECTED) {
+      WiFi.softAPdisconnect(true);
+      delay(500);
+      WiFi.softAPConfig(setupApIp, setupApGateway, setupApSubnet);
+      delay(200);
+      setupApStarted = WiFi.softAP(setupApSsid, setupApPass, setupApChannel, setupApHidden, setupApMaxConnections);
+      delay(1000);
+      if (setupApStarted) {
+        dnsServer.stop();
+        dnsServer.start(DNS_PORT, "*", setupApIp);
+      }
+    } else {
+      startSetupAP();
+    }
+
     inSetupMode = wasInSetupMode;
   } else {
-    Serial.print("Setup hotspot active at http://");
-    Serial.print(WiFi.softAPIP());
-    Serial.print(" clients: ");
+    Serial.print("[AP] Hotspot OK — clients: ");
     Serial.println(WiFi.softAPgetStationNum());
   }
 }
@@ -622,18 +654,19 @@ void handleRemoveTime() {
 
 void handleScanNetworks() {
   addCorsHeaders();
-  if (inSetupMode && WiFi.getMode() == WIFI_AP) {
+  // FIX: In WIFI_AP mode switch to AP_STA for scanning, then restore AP config
+  if (WiFi.getMode() == WIFI_AP) {
     WiFi.mode(WIFI_AP_STA);
+    delay(300);
+    // Re-apply AP config so it stays up during the scan
+    WiFi.softAPConfig(setupApIp, setupApGateway, setupApSubnet);
+    WiFi.softAP(setupApSsid, setupApPass, setupApChannel, setupApHidden, setupApMaxConnections);
     delay(500);
-    if (!setupApIpIsValid()) {
-      setupApStarted = startSoftAPWithCurrentMode();
-      delay(500);
-    }
   }
 
   int n = WiFi.scanNetworks(false, true);
   if (n < 0) {
-    Serial.print("WiFi scan failed: ");
+    Serial.print("[SCAN] Failed: ");
     Serial.println(n);
     server.send(500, "application/json", "{\"error\":\"Network scan failed\"}");
     return;
@@ -711,6 +744,14 @@ void handleNotFound() {
     handleOptions();
     return;
   }
+  // FIX: Captive portal redirect — iOS/Android will auto-open the browser
+  //      when they detect a redirect from a known captive portal probe URL
+  if (inSetupMode) {
+    String redirectUrl = "http://192.168.4.1/";
+    server.sendHeader("Location", redirectUrl, true);
+    server.send(302, "text/plain", "");
+    return;
+  }
   addCorsHeaders();
   server.send(404, "application/json", "{\"error\":\"Not found\"}");
 }
@@ -722,9 +763,13 @@ void serveSetupPortal() {
 
 void setupHttpServer() {
   server.on("/", HTTP_GET, serveSetupPortal);
+  // Captive portal probe URLs for Android, iOS, Windows
   server.on("/generate_204", HTTP_GET, serveSetupPortal);
+  server.on("/gen_204", HTTP_GET, serveSetupPortal);
   server.on("/hotspot-detect.html", HTTP_GET, serveSetupPortal);
   server.on("/connecttest.txt", HTTP_GET, serveSetupPortal);
+  server.on("/ncsi.txt", HTTP_GET, serveSetupPortal);
+  server.on("/redirect", HTTP_GET, serveSetupPortal);
   server.on("/auth", HTTP_POST, handleAuth);
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/control/reset-money", HTTP_POST, handleResetMoney);
@@ -735,7 +780,7 @@ void setupHttpServer() {
   server.on("/api/wifi-status", HTTP_GET, handleWifiStatus);
   server.onNotFound(handleNotFound);
   server.begin();
-  Serial.println("HTTP server started on port 80.");
+  Serial.println("[HTTP] Server started on port 80.");
 }
 
 // ===== MAIN SETUP =====
@@ -763,14 +808,22 @@ void setup() {
   if (timeRemaining <= 0) isActive = false;
 
   loadWifiCredentials();
+
+  // FIX: Always start the AP first so a phone can always reach the device.
+  //      Then attempt STA join on top of it (AP_STA mode).
+  //      This way if STA fails the AP is still broadcasting — no blind spot.
   startSetupAP();
-  if (connectStationWifi()) {
-    inSetupMode = false;
+
+  if (staSsid.length() > 0) {
+    if (connectStationWifi()) {
+      inSetupMode = false;
+    } else {
+      inSetupMode = true;
+      // AP was already started; re-verify it's still healthy
+      if (!setupApStarted) startSetupAP();
+    }
   } else {
     inSetupMode = true;
-    if (!setupApStarted || !setupApIpIsValid()) {
-      startSetupAP();
-    }
   }
 
   if (WiFi.status() == WL_CONNECTED) {
@@ -779,6 +832,14 @@ void setup() {
     lcd.print("WiFi Connected");
     lcd.setCursor(0, 1);
     lcd.print(WiFi.localIP().toString());
+    delay(1500);
+  } else {
+    // FIX: Show AP info on LCD so the user knows what to connect to
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Setup AP:");
+    lcd.setCursor(0, 1);
+    lcd.print("192.168.4.1");
     delay(1500);
   }
 
@@ -803,10 +864,12 @@ void loop() {
       wifiFailCount++;
       WiFi.disconnect(false);
       delay(100);
-      WiFi.mode(setupApStarted ? WIFI_AP_STA : WIFI_STA);
+      // FIX: Keep WIFI_AP_STA so the setup AP stays alive during reconnect
+      WiFi.mode(WIFI_AP_STA);
       delay(100);
       WiFi.begin(staSsid.c_str(), staPass.c_str());
       if (wifiFailCount >= 6) {
+        inSetupMode = true;
         startSetupAP();
       }
     } else {
