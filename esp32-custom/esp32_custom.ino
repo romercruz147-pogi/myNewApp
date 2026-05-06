@@ -28,7 +28,11 @@ String backendUrl = "";
 const char* defaultBackendUrl = DEVICE_BACKEND_URL;
 String ownerUid = "";
 bool wifiStaEnabled = true;
+String cloudJwt = "";
+bool cloudAuthenticated = false;
 unsigned long lastCloudHeartbeat = 0;
+unsigned long lastCloudAuthAttempt = 0;
+
 
 // WiFi Configuration
 const char* setupApSsid = "Romers-Vendo-Setup";
@@ -116,6 +120,14 @@ String normalizeBackendUrl(String url) {
   return url;
 }
 
+String backendApiUrl(const String& path) {
+  String base = normalizeBackendUrl(backendUrl);
+  if (base.length() == 0) return "";
+  if (base.endsWith("/api/devices/heartbeat") && path == "/api/devices/heartbeat") return base;
+  if (base.endsWith("/api/devices/auth") && path == "/api/devices/auth") return base;
+  return base + path;
+}
+
 String randomHex(uint8_t bytes) {
   String out = "";
   for (uint8_t i = 0; i < bytes; i++) {
@@ -141,21 +153,63 @@ void loadDeviceIdentity() {
   // and waits for /api/device-credentials or the setup portal until credentials are configured.
 }
 
+bool authenticateWithBackend() {
+  if (backendUrl.length() == 0 || deviceId.length() == 0 || deviceSecret.length() == 0 || WiFi.status() != WL_CONNECTED) return false;
+  if (cloudAuthenticated && cloudJwt.length() > 0) return true;
+  if (millis() - lastCloudAuthAttempt < 10000) return false;
+  lastCloudAuthAttempt = millis();
+
+  HTTPClient http;
+  String authUrl = backendApiUrl("/api/devices/auth");
+  http.begin(authUrl);
+  http.addHeader("Content-Type", "application/json");
+
+  DynamicJsonDocument doc(384);
+  doc["device_id"] = deviceId;
+  doc["device_secret"] = deviceSecret;
+  String body;
+  serializeJson(doc, body);
+
+  int code = http.POST(body);
+  String response = http.getString();
+  http.end();
+
+  if (code != 200) {
+    Serial.printf("[CloudAuth] Failed with HTTP %d\n", code);
+    cloudJwt = "";
+    cloudAuthenticated = false;
+    return false;
+  }
+
+  DynamicJsonDocument res(768);
+  if (deserializeJson(res, response)) {
+    Serial.println("[CloudAuth] Invalid JSON response");
+    cloudJwt = "";
+    cloudAuthenticated = false;
+    return false;
+  }
+
+  cloudJwt = String((const char*)res["token"]);
+  cloudAuthenticated = cloudJwt.length() > 0;
+  Serial.println(cloudAuthenticated ? "[CloudAuth] Authenticated" : "[CloudAuth] Missing token");
+  return cloudAuthenticated;
+}
+
 void sendCloudHeartbeat() {
   if (backendUrl.length() == 0 || deviceId.length() == 0 || deviceSecret.length() == 0 || WiFi.status() != WL_CONNECTED) return;
   if (millis() - lastCloudHeartbeat < 15000) return;
+
+  if (!authenticateWithBackend()) return;
   lastCloudHeartbeat = millis();
 
   HTTPClient http;
-  http.begin(backendUrl);
+  String heartbeatUrl = backendApiUrl("/api/devices/heartbeat");
+  http.begin(heartbeatUrl);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-Device-Id", deviceId);
-  http.addHeader("X-Device-Secret", deviceSecret);
+  http.addHeader("Authorization", "Bearer " + cloudJwt);
 
   DynamicJsonDocument doc(1024);
   doc["deviceId"] = deviceId;
-  doc["deviceSecret"] = deviceSecret;
-  doc["ownerUid"] = ownerUid;
   doc["status"] = "Connected";
   doc["connectionStatus"] = "Connected";
   doc["isConnected"] = true;
@@ -180,8 +234,16 @@ void sendCloudHeartbeat() {
   pricing["secondsForMinCredits"] = secondsForMinCredits;
   String body;
   serializeJson(doc, body);
-  http.POST(body);
+
+  int code = http.POST(body);
   http.end();
+
+  if (code == 401 || code == 403) {
+    Serial.println("[CloudHeartbeat] Token rejected; re-authenticating next loop");
+    cloudJwt = "";
+    cloudAuthenticated = false;
+    lastCloudAuthAttempt = 0;
+  }
 }
 
 void refreshLCD() {
@@ -916,6 +978,9 @@ void handleDeviceCredentialsConfig() {
   prefs.putString("backend", backendUrl);
   prefs.putString("owner_uid", ownerUid);
   lastCloudHeartbeat = 0;
+  cloudJwt = "";
+  cloudAuthenticated = false;
+  lastCloudAuthAttempt = 0;
 
   DynamicJsonDocument res(384);
   res["ok"] = true;
