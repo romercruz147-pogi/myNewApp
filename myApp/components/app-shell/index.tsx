@@ -16,7 +16,6 @@ import { palette } from '@/components/theme';
 const nav = [
   { href: '/dashboard' as const, label: 'Dashboard' },
   { href: '/devices' as const, label: 'Devices' },
-  { href: '/secure-connection' as const, label: 'Secure Connection' },
   { href: '/analytics' as const, label: 'Analytics' },
   { href: '/settings' as const, label: 'Settings' },
   { href: '/romers-vendo' as const, label: 'Romers Vendo' },
