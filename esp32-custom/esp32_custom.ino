@@ -36,8 +36,8 @@ const char* adminPass = "1234";
 String sessionToken = "";
 
 // ===== WIFI (multi-network fallback, unchanged logic) =====
-const char* ssidList[] = {"RADIUS8E9AA", "Infinix NOTE 40 5G", "Infinix HOT 50 Pro+"};
-const char* passList[] = {"9p6fzk5ZEf", "romer13456", "geconnect"};
+const char* ssidList[] = {"CHARD", "Infinix NOTE 40 5G", "Infinix HOT 50 Pro+"};
+const char* passList[] = {"1234567890@", "romer13456", "geconnect"};
 
 // ===== PINS (unchanged) =====
 const int COIN_PIN = 16;
