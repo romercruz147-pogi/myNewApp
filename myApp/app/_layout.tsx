@@ -19,7 +19,7 @@ export default function RootLayout() {
         <Stack.Screen name="analytics" options={{ headerShown: false }} />
         <Stack.Screen name="settings" options={{ headerShown: false }} />
         <Stack.Screen name="romers-vendo" options={{ headerShown: false }} />
-        <Stack.Screen name="vendo-control" options={{ headerShown: false }} />
+        <Stack.Screen name="vendo-control" options={{ presentation: 'modal', headerShown: false, animation: 'slide_from_bottom' }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
