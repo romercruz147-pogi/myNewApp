@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { AppShell } from '@/components/app-shell';
 import { palette } from '@/components/theme';
-import { esp32Api } from '@/lib/esp32-device-api';
+import { esp32Api, updatePairedDevice } from '@/lib/esp32-device-api';
+import { db } from '@/lib/firebase';
 
 type VendoState = {
   deviceId?: string;
@@ -35,7 +37,7 @@ const defaultState: VendoState = {
 };
 
 export default function VendoControl() {
-  const { ip, token, deviceId, deviceToken } = useLocalSearchParams<{ ip?: string; token?: string; deviceId?: string; deviceToken?: string }>();
+  const { ip, token, deviceId, deviceToken, uid, deviceDocId } = useLocalSearchParams<{ ip?: string; token?: string; deviceId?: string; deviceToken?: string; uid?: string; deviceDocId?: string }>();
   const [state, setState] = useState<VendoState>({ ...defaultState, deviceId, deviceToken });
   const [timeDelta, setTimeDelta] = useState('');
   const [pesoAmount, setPesoAmount] = useState('1');
@@ -43,11 +45,12 @@ export default function VendoControl() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [wifiEnabled, setWifiEnabled] = useState(true);
+  const activeDeviceToken = token || deviceToken;
 
   const fetchState = useCallback(async () => {
     if (!ip) return;
     try {
-      const data = await esp32Api.getStatus(ip, token);
+      const data = await esp32Api.getStatus(ip, activeDeviceToken);
       setState({
         deviceId: data?.deviceId || deviceId,
         deviceToken: data?.deviceToken || deviceToken,
@@ -64,13 +67,65 @@ export default function VendoControl() {
         connectionStatus: 'Online / Connected',
       });
       setWifiEnabled(Boolean(data?.wifiConnected));
+      if (uid && (data?.deviceId || deviceId)) {
+        await updatePairedDevice(uid, String(data?.deviceId || deviceId), {
+          ip: data?.ip ? esp32Api.normalizeBaseUrl(String(data.ip)) : esp32Api.normalizeBaseUrl(ip),
+          deviceToken: String(data?.deviceToken || deviceToken || activeDeviceToken || ''),
+          status: 'Connected',
+          connectionStatus: 'Connected',
+          isConnected: true,
+          online: true,
+          isOn: Boolean(data?.isActive),
+          money: Number(data?.money ?? data?.moneyInserted ?? data?.credits ?? 0),
+          moneyInserted: Number(data?.moneyInserted ?? data?.money ?? data?.credits ?? 0),
+          remainingTime: Number(data?.remainingTime ?? 0),
+          totalTimeUsed: Number(data?.totalTimeUsed ?? data?.totalTime ?? 0),
+          salesToday: Number(data?.salesToday ?? data?.money ?? 0),
+          totalEarnings: Number(data?.totalEarnings ?? 0),
+          minCreditsToStart: Number(data?.minCreditsToStart ?? 50),
+          secondsForMinCredits: Number(data?.secondsForMinCredits ?? 3000),
+          pricingSettings: {
+            onePesoMinutes: Math.max(1, Math.round(Number(data?.secondsForMinCredits ?? 60) / 60)),
+            tenPesoMinutes: Math.max(1, Math.round((Number(data?.secondsForMinCredits ?? 60) * 10) / 60)),
+            minCreditsToStart: Number(data?.minCreditsToStart ?? 50),
+            secondsForMinCredits: Number(data?.secondsForMinCredits ?? 3000),
+          },
+        });
+      }
     } catch (error) {
       setState((current) => ({ ...current, connectionStatus: 'Offline / Unreachable', wifiConnected: false }));
+      if (uid && deviceId) {
+        await updatePairedDevice(uid, deviceId, { status: 'Disconnected', connectionStatus: 'Disconnected', isConnected: false, online: false });
+      }
       Alert.alert('Connection issue', error instanceof Error ? error.message : 'ESP32 is offline or unreachable.');
     } finally {
       setLoading(false);
     }
-  }, [deviceId, deviceToken, ip, token]);
+  }, [activeDeviceToken, deviceId, deviceToken, ip, uid]);
+
+  useEffect(() => {
+    if (!uid || !(deviceDocId || deviceId)) return;
+    const ref = doc(db, 'users', uid, 'devices', String(deviceId || deviceDocId));
+    return onSnapshot(ref, (snap) => {
+      if (!snap.exists()) return;
+      const data = snap.data();
+      setState((current) => ({
+        ...current,
+        deviceId: String(data.deviceId ?? current.deviceId ?? ''),
+        deviceToken: String(data.deviceToken ?? current.deviceToken ?? ''),
+        moneyInserted: Number(data.moneyInserted ?? data.money ?? current.moneyInserted),
+        remainingTime: Number(data.remainingTime ?? current.remainingTime),
+        totalTimeUsed: Number(data.totalTimeUsed ?? current.totalTimeUsed),
+        isActive: Boolean(data.isOn ?? data.isActive ?? current.isActive),
+        salesToday: Number(data.salesToday ?? current.salesToday),
+        totalEarnings: Number(data.totalEarnings ?? current.totalEarnings),
+        minCreditsToStart: Number(data.minCreditsToStart ?? data.pricingSettings?.minCreditsToStart ?? current.minCreditsToStart),
+        secondsForMinCredits: Number(data.secondsForMinCredits ?? data.pricingSettings?.secondsForMinCredits ?? current.secondsForMinCredits),
+        wifiConnected: Boolean(data.isConnected ?? data.online ?? current.wifiConnected),
+        connectionStatus: String(data.connectionStatus ?? data.status ?? current.connectionStatus),
+      }));
+    });
+  }, [deviceDocId, deviceId, uid]);
 
   useEffect(() => {
     fetchState();
@@ -82,7 +137,7 @@ export default function VendoControl() {
     if (!ip) return;
     try {
       setSubmitting(true);
-      await esp32Api.resetMoney(ip, token);
+      await esp32Api.resetMoney(ip, activeDeviceToken);
       await fetchState();
     } catch (error) {
       Alert.alert('Request failed', error instanceof Error ? error.message : 'Failed to send reset command.');
@@ -100,7 +155,7 @@ export default function VendoControl() {
     }
     try {
       setSubmitting(true);
-      await esp32Api.addTime(ip, token, seconds);
+      await esp32Api.addTime(ip, activeDeviceToken, seconds);
       setTimeDelta('');
       await fetchState();
     } catch (error) {
@@ -120,7 +175,19 @@ export default function VendoControl() {
     }
     try {
       setSubmitting(true);
-      await esp32Api.updateSettings(ip, token, pesos, minutes * 60);
+      await esp32Api.updateSettings(ip, activeDeviceToken, pesos, minutes * 60);
+      if (uid && (state.deviceId || deviceId)) {
+        await updatePairedDevice(uid, String(state.deviceId || deviceId), {
+          minCreditsToStart: pesos,
+          secondsForMinCredits: minutes * 60,
+          pricingSettings: {
+            onePesoMinutes: pesos === 1 ? minutes : Math.max(1, Math.round(minutes / pesos)),
+            tenPesoMinutes: pesos === 10 ? minutes : Math.max(1, Math.round((minutes / pesos) * 10)),
+            minCreditsToStart: pesos,
+            secondsForMinCredits: minutes * 60,
+          },
+        });
+      }
       await fetchState();
     } catch (error) {
       Alert.alert('Request failed', error instanceof Error ? error.message : 'Failed to save pricing settings.');
@@ -133,7 +200,7 @@ export default function VendoControl() {
     if (!ip) return;
     setWifiEnabled(enabled);
     try {
-      await esp32Api.setWifiEnabled(ip, token, enabled);
+      await esp32Api.setWifiEnabled(ip, activeDeviceToken, enabled);
       if (enabled) setTimeout(fetchState, 2500);
     } catch (error) {
       setWifiEnabled(!enabled);

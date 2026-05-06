@@ -22,6 +22,7 @@ String sessionToken = "";
 String deviceId = "";
 String deviceToken = "";
 String backendUrl = "";
+String ownerUid = "";
 bool wifiStaEnabled = true;
 unsigned long lastCloudHeartbeat = 0;
 
@@ -122,20 +123,12 @@ void loadDeviceIdentity() {
   adminUser = prefs.getString("admin_user", adminUser);
   adminPass = prefs.getString("admin_pass", adminPass);
   backendUrl = prefs.getString("backend", "");
+  ownerUid = prefs.getString("owner_uid", "");
   wifiStaEnabled = prefs.getBool("wifi_on", true);
 
-  if (deviceId.length() == 0) {
-    uint64_t mac = ESP.getEfuseMac();
-    char macPart[13];
-    snprintf(macPart, sizeof(macPart), "%04X%08X", (uint16_t)(mac >> 32), (uint32_t)mac);
-    deviceId = "RV-" + String(macPart) + "-" + randomHex(2);
-    prefs.putString("device_id", deviceId);
-  }
-
-  if (deviceToken.length() == 0) {
-    deviceToken = randomHex(16);
-    prefs.putString("dev_token", deviceToken);
-  }
+  // Blynk-style pairing: the mobile app/Firebase is the authority for
+  // deviceId and deviceToken.  The ESP32 only loads stored credentials here
+  // and waits for /api/pairing or the setup portal when it is not yet paired.
 }
 
 void sendCloudHeartbeat() {
@@ -149,8 +142,17 @@ void sendCloudHeartbeat() {
   http.addHeader("X-Device-Id", deviceId);
   http.addHeader("X-Device-Token", deviceToken);
 
-  DynamicJsonDocument doc(768);
+  DynamicJsonDocument doc(1024);
   doc["deviceId"] = deviceId;
+  doc["deviceToken"] = deviceToken;
+  doc["ownerUid"] = ownerUid;
+  doc["status"] = "Connected";
+  doc["connectionStatus"] = "Connected";
+  doc["isConnected"] = true;
+  doc["online"] = true;
+  doc["money"] = credits;
+  doc["moneyInserted"] = credits;
+  doc["credits"] = credits;
   doc["remainingTime"] = timeRemaining;
   doc["totalTimeUsed"] = totalTime;
   doc["salesToday"] = salesToday;
@@ -159,6 +161,13 @@ void sendCloudHeartbeat() {
   doc["wifiConnected"] = true;
   doc["wifiSignal"] = WiFi.RSSI();
   doc["ip"] = WiFi.localIP().toString();
+  doc["minCreditsToStart"] = minCreditsToStart;
+  doc["secondsForMinCredits"] = secondsForMinCredits;
+  JsonObject pricing = doc.createNestedObject("pricingSettings");
+  pricing["onePesoMinutes"] = max(1, secondsForMinCredits / 60);
+  pricing["tenPesoMinutes"] = max(1, (secondsForMinCredits * 10) / 60);
+  pricing["minCreditsToStart"] = minCreditsToStart;
+  pricing["secondsForMinCredits"] = secondsForMinCredits;
   String body;
   serializeJson(doc, body);
   http.POST(body);
@@ -506,6 +515,19 @@ const char index_html[] PROGMEM = R"rawliteral(
     </section>
 
     <section class="wifi-card">
+      <h2>App Device Pairing</h2>
+      <p class="message">Paste the Device ID and passkey generated in the mobile app. The ESP32 stores these credentials and uses them for authenticated heartbeat/control.</p>
+      <label for="pairDeviceId">Device ID from app</label>
+      <input id="pairDeviceId" type="text" autocomplete="off" placeholder="RV-...">
+      <label for="pairDeviceToken">Passkey / Device Token from app</label>
+      <input id="pairDeviceToken" type="password" autocomplete="off" placeholder="RVT-...">
+      <label for="backendUrl">Heartbeat backend URL (optional)</label>
+      <input id="backendUrl" type="text" autocomplete="off" placeholder="https://.../deviceHeartbeat">
+      <button type="button" onclick="savePairing()">Save App Pairing Credentials</button>
+      <p id="pairingMessage" class="message"></p>
+    </section>
+
+    <section class="wifi-card">
       <h2>WiFi Setup</h2>
       <p id="wifiStatus" class="message">Checking WiFi status...</p>
       <button type="button" onclick="scanNetworks()">Scan Networks</button>
@@ -571,6 +593,34 @@ const char index_html[] PROGMEM = R"rawliteral(
       }
     }
 
+    async function savePairing() {
+      const deviceId = document.getElementById('pairDeviceId').value.trim();
+      const deviceToken = document.getElementById('pairDeviceToken').value.trim();
+      const backendUrl = document.getElementById('backendUrl').value.trim();
+      const message = document.getElementById('pairingMessage');
+      if (!deviceId || !deviceToken) {
+        message.textContent = 'Device ID and passkey are required.';
+        message.className = 'message error';
+        return;
+      }
+      message.textContent = 'Saving app-generated credentials...';
+      message.className = 'message';
+      try {
+        const response = await fetch('/api/pairing', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deviceId, deviceToken, backendUrl })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Unable to save pairing credentials');
+        message.textContent = 'Pairing credentials saved. Reboot or connect WiFi to start heartbeats.';
+        pollStatus();
+      } catch (error) {
+        message.textContent = error.message || 'Pairing save failed.';
+        message.className = 'message error';
+      }
+    }
+
     async function connectWifi() {
       const ssid = document.getElementById('ssid').value.trim();
       const password = document.getElementById('password').value;
@@ -613,7 +663,9 @@ const char index_html[] PROGMEM = R"rawliteral(
         document.getElementById('isActive').textContent = status.isActive ? 'Yes' : 'No';
         document.getElementById('ipAddress').textContent = status.ip || wifi.ip || '--';
         document.getElementById('deviceId').textContent = device.deviceId || status.deviceId || '--';
-        document.getElementById('deviceToken').textContent = device.deviceToken || status.deviceToken || '--';
+        document.getElementById('deviceToken').textContent = device.deviceToken ? 'Configured' : '--';
+        document.getElementById('pairDeviceId').value = device.deviceId || status.deviceId || '';
+        document.getElementById('backendUrl').value = device.backendUrl || '';
         document.getElementById('wifiStatus').textContent = wifi.connected
           ? `Connected to ${wifi.ssid} at ${wifi.ip}`
           : `Setup mode: connect to ${wifi.ssid} at ${wifi.ip}`;
@@ -809,11 +861,61 @@ void handleDeviceInfo() {
   DynamicJsonDocument doc(512);
   doc["deviceId"] = deviceId;
   doc["deviceToken"] = deviceToken;
+  doc["paired"] = deviceId.length() > 0 && deviceToken.length() > 0;
+  doc["backendUrl"] = backendUrl;
+  doc["ownerUid"] = ownerUid;
   doc["ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
   doc["setupIp"] = WiFi.softAPIP().toString();
   doc["ssid"] = setupApSsid;
   String out;
   serializeJson(doc, out);
+  server.send(200, "application/json", out);
+}
+
+
+void handlePairingConfig() {
+  addCorsHeaders();
+  if (deviceToken.length() > 0 && !isAuthorizedRequest()) {
+    server.send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+    return;
+  }
+  if (!server.hasArg("plain")) {
+    server.send(400, "application/json", "{\"error\":\"Missing body\"}");
+    return;
+  }
+  DynamicJsonDocument doc(768);
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+    return;
+  }
+  String nextDeviceId = doc["deviceId"] | "";
+  String nextDeviceToken = doc["deviceToken"] | "";
+  if (nextDeviceToken.length() == 0) nextDeviceToken = doc["passkey"] | "";
+  String nextBackend = doc["backendUrl"] | backendUrl;
+  String nextOwnerUid = doc["ownerUid"] | ownerUid;
+  if (nextDeviceId.length() == 0 || nextDeviceToken.length() < 16) {
+    server.send(400, "application/json", "{\"error\":\"Device ID and a secure passkey/token are required\"}");
+    return;
+  }
+  deviceId = nextDeviceId;
+  deviceToken = nextDeviceToken;
+  backendUrl = nextBackend;
+  ownerUid = nextOwnerUid;
+  prefs.putString("device_id", deviceId);
+  prefs.putString("dev_token", deviceToken);
+  prefs.putString("backend", backendUrl);
+  prefs.putString("owner_uid", ownerUid);
+  lastCloudHeartbeat = 0;
+
+  DynamicJsonDocument res(384);
+  res["ok"] = true;
+  res["deviceId"] = deviceId;
+  res["paired"] = true;
+  res["backendUrl"] = backendUrl;
+  res["ownerUid"] = ownerUid;
+  res["ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
+  String out;
+  serializeJson(res, out);
   server.send(200, "application/json", out);
 }
 
@@ -1017,6 +1119,7 @@ void setupHttpServer() {
   server.on("/device/info", HTTP_GET, handleDeviceInfo);
   server.on("/api/device-info", HTTP_GET, handleDeviceInfo);
   server.on("/api/config-auth", HTTP_POST, handleConfigAuth);
+  server.on("/api/pairing", HTTP_POST, handlePairingConfig);
   server.on("/vendo/state", HTTP_GET, handleVendoState);
   server.on("/vendo/reset-money", HTTP_POST, handleResetMoney);
   server.on("/vendo/update-time", HTTP_POST, handleVendoUpdateTime);
