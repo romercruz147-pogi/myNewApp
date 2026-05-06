@@ -167,6 +167,86 @@ void handleSetupSave() {
   ESP.restart();
 }
 
+// ===== NEW: API ENDPOINT FOR WIFI SCAN (JSON) =====
+void handleScanNetworks() {
+  addCorsHeaders();
+  
+  int n = WiFi.scanNetworks();
+  DynamicJsonDocument doc(2048);
+  JsonArray networks = doc.createNestedArray("networks");
+  
+  for (int i = 0; i < n; i++) {
+    JsonObject net = networks.createNestedObject();
+    net["ssid"] = WiFi.SSID(i);
+    net["rssi"] = WiFi.RSSI(i);
+    net["channel"] = WiFi.channel(i);
+    net["secure"] = WiFi.encryptionType(i) != WIFI_AUTH_OPEN ? 1 : 0;
+  }
+  
+  String out;
+  serializeJson(doc, out);
+  server.send(200, "application/json", out);
+}
+
+// ===== NEW: API ENDPOINT FOR WIFI CONNECT (JSON) =====
+void handleSetupWifi() {
+  addCorsHeaders();
+  
+  if (!server.hasArg("plain")) {
+    server.send(400, "application/json", "{\"error\":\"Missing body\"}");
+    return;
+  }
+  
+  DynamicJsonDocument doc(256);
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+    return;
+  }
+  
+  String ssid = doc["ssid"] | "";
+  String pass = doc["password"] | "";
+  
+  if (ssid.length() == 0) {
+    server.send(400, "application/json", "{\"error\":\"SSID required\"}");
+    return;
+  }
+  
+  saveWifiCredentials(ssid, pass);
+  
+  DynamicJsonDocument res(256);
+  res["ok"] = true;
+  res["message"] = "WiFi credentials saved. Rebooting...";
+  res["ssid"] = ssid;
+  
+  String out;
+  serializeJson(res, out);
+  server.send(200, "application/json", out);
+  
+  delay(1000);
+  ESP.restart();
+}
+
+// ===== NEW: ENDPOINT FOR WIFI STATUS =====
+void handleWifiStatus() {
+  addCorsHeaders();
+  
+  DynamicJsonDocument doc(256);
+  doc["connected"] = WiFi.status() == WL_CONNECTED ? true : false;
+  if (WiFi.status() == WL_CONNECTED) {
+    doc["ip"] = WiFi.localIP().toString();
+    doc["ssid"] = WiFi.SSID();
+    doc["rssi"] = WiFi.RSSI();
+  } else {
+    doc["ip"] = WiFi.softAPIP().toString();
+    doc["ssid"] = setupApSsid;
+    doc["mode"] = "setup";
+  }
+  
+  String out;
+  serializeJson(doc, out);
+  server.send(200, "application/json", out);
+}
+
 void handleAuth() {
   addCorsHeaders();
   if (!server.hasArg("plain")) {
@@ -245,8 +325,12 @@ void setupHttpServer() {
   server.on("/control/reset-money", HTTP_POST, handleResetMoney);
   server.on("/control/add-time", HTTP_POST, handleAddTime);
 
+  // WiFi Setup Endpoints (NEW)
   server.on("/setup", HTTP_GET, handleSetupRoot);
   server.on("/setup/save", HTTP_POST, handleSetupSave);
+  server.on("/api/scan-networks", HTTP_GET, handleScanNetworks);     // NEW: Scan WiFi in JSON
+  server.on("/api/setup-wifi", HTTP_POST, handleSetupWifi);          // NEW: Set WiFi in JSON
+  server.on("/api/wifi-status", HTTP_GET, handleWifiStatus);         // NEW: Get WiFi status
 
   server.onNotFound([]() {
     if (server.method() == HTTP_OPTIONS) return handleOptions();
