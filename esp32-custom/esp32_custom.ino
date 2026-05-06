@@ -16,7 +16,7 @@ String adminPass = "1234";
 String sessionToken = "";
 
 // ===== WIFI CONFIG (NEW CONNECTIVITY LAYER) =====
-const char* setupApSsid = "VendoSetup";
+const char* setupApSsid = "Romers-Vendo-Setup";
 const char* setupApPass = "12345678";
 bool inSetupMode = false;
 int wifiFailCount = 0;
@@ -168,6 +168,134 @@ const char MAIN_PAGE_HTML[] PROGMEM = R"HTML(
 </html>
 )HTML";
 
+const char SETUP_PAGE_HTML[] PROGMEM = R"HTML(
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WiFi Setup Portal</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0a1020;--card:#121a2c;--stroke:#223257;--text:#e7efff;--muted:#9bb0d9;--accent:#62a7ff;--ok:#24d18f;--err:#ff6b6b}
+    *{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:linear-gradient(170deg,#070b18,#0f1830 60%,#0a1328);color:var(--text)}
+    .wrap{max-width:760px;margin:0 auto;padding:18px}
+    .card{background:var(--card);border:1px solid var(--stroke);border-radius:14px;padding:16px}
+    h1{font-size:1.2rem;margin:.2rem 0 .6rem} .sub{color:var(--muted);font-size:.9rem;margin-bottom:14px}
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    button,.btn{border:none;border-radius:10px;padding:10px 12px;font-weight:600;background:#253865;color:var(--text);cursor:pointer}
+    button.primary{background:var(--accent);color:#071126}
+    .list{margin-top:12px;max-height:280px;overflow:auto;border:1px solid var(--stroke);border-radius:10px}
+    .net{padding:10px 12px;border-bottom:1px solid #1b2948;cursor:pointer}
+    .net:last-child{border-bottom:0}.net.sel{background:#1b2b51}
+    label{display:block;margin:.75rem 0 .35rem;color:var(--muted)} input{width:100%;padding:10px;border-radius:10px;border:1px solid var(--stroke);background:#0b1326;color:var(--text)}
+    .status{margin-top:12px;padding:10px;border-radius:10px;background:#101a31;border:1px solid var(--stroke);min-height:42px}
+    .ok{color:var(--ok)} .err{color:var(--err)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Romers Vendo WiFi Setup</h1>
+      <div class="sub">Connect this device to your WiFi network. Once connected, use the shown local IP in your app.</div>
+      <div class="row">
+        <button id="refresh">Refresh Networks</button>
+      </div>
+      <div id="networks" class="list"></div>
+      <label for="ssid">Selected Network (SSID)</label>
+      <input id="ssid" placeholder="Tap a network above or enter manually" />
+      <label for="password">Password</label>
+      <div class="row" style="align-items:center">
+        <input id="password" type="password" placeholder="WiFi password" style="flex:1" />
+        <button id="togglePass" class="btn" type="button">Show</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="connect" class="primary">Connect</button>
+      </div>
+      <div id="status" class="status">Ready.</div>
+    </div>
+  </div>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const state = {selected:""};
+  function setStatus(msg, cls){
+    $('status').className = 'status ' + (cls || '');
+    $('status').innerHTML = msg;
+  }
+  function esc(s){return (s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+  async function scanNetworks(){
+    setStatus('Scanning nearby WiFi networks...');
+    try{
+      const r = await fetch('/api/scan-networks');
+      const d = await r.json();
+      const list = d.networks || [];
+      const box = $('networks');
+      box.innerHTML = '';
+      list.sort((a,b)=>b.rssi-a.rssi);
+      if(!list.length){ box.innerHTML = '<div class="net">No networks found.</div>'; setStatus('No networks detected. Try refresh.', 'err'); return; }
+      list.forEach(n=>{
+        const item = document.createElement('div');
+        item.className='net';
+        item.innerHTML = '<strong>'+esc(n.ssid || '(Hidden)')+'</strong><br><small>Signal: '+n.rssi+' dBm '+(n.secure?'🔒':'🔓')+'</small>';
+        item.onclick=()=>{
+          document.querySelectorAll('.net').forEach(el=>el.classList.remove('sel'));
+          item.classList.add('sel');
+          state.selected = n.ssid || '';
+          $('ssid').value = state.selected;
+        };
+        box.appendChild(item);
+      });
+      setStatus('Select a network and enter password if needed.');
+    }catch(_){
+      setStatus('Failed to scan networks. Please try again.', 'err');
+    }
+  }
+  async function connectWifi(){
+    const ssid = $('ssid').value.trim();
+    const password = $('password').value;
+    if(!ssid){ setStatus('SSID is required.', 'err'); return; }
+    setStatus('Saving WiFi and connecting... device may restart.');
+    try{
+      const r = await fetch('/api/setup-wifi',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid,password})});
+      const d = await r.json();
+      if(!r.ok){ setStatus(esc(d.error || 'Connection request failed.'), 'err'); return; }
+      setStatus('Credentials saved. Waiting for reconnect...');
+      pollStatus();
+    }catch(_){
+      setStatus('Failed to submit WiFi details.', 'err');
+    }
+  }
+  async function pollStatus(){
+    let tries=0;
+    const t = setInterval(async ()=>{
+      tries++;
+      try{
+        const r = await fetch('/api/wifi-status');
+        const d = await r.json();
+        if(d.connected && d.ip){
+          clearInterval(t);
+          setStatus('Connected to <strong>'+esc(d.ssid||'WiFi')+'</strong>. Device IP: <strong>'+esc(d.ip)+'</strong>', 'ok');
+        }else if(tries>40){
+          clearInterval(t);
+          setStatus('Still not connected. Device remains in setup mode.', 'err');
+        }
+      }catch(_){}
+    }, 1500);
+  }
+  $('refresh').onclick = scanNetworks;
+  $('connect').onclick = connectWifi;
+  $('togglePass').onclick = () => {
+    const p = $('password');
+    p.type = p.type === 'password' ? 'text' : 'password';
+    $('togglePass').textContent = p.type === 'password' ? 'Show' : 'Hide';
+  };
+  scanNetworks();
+})();
+</script>
+</body>
+</html>
+)HTML";
+
 // ===== NEW: WIFI CREDENTIAL STORAGE =====
 void loadWifiCredentials() {
   staSsid = prefs.getString("wifi_ssid", "");
@@ -221,7 +349,7 @@ String setupPortalPage() {
 }
 
 void handleSetupRoot() {
-  server.send(200, "text/html", setupPortalPage());
+  server.send_P(200, "text/html", SETUP_PAGE_HTML);
 }
 
 void handleSetupSave() {
@@ -406,12 +534,8 @@ void handleWebUi() {
 void setupHttpServer() {
   server.on("/", HTTP_GET, [](){
     addCorsHeaders();
-    String accept = server.header("Accept");
-    if (accept.indexOf("application/json") >= 0) {
-      server.send(200, "application/json", "{\"service\":\"romers-vendo\"}");
-      return;
-    }
-    server.send_P(200, "text/html", MAIN_PAGE_HTML);
+    if (inSetupMode) server.send_P(200, "text/html", SETUP_PAGE_HTML);
+    else server.send_P(200, "text/html", MAIN_PAGE_HTML);
   });
   server.on("/service", HTTP_GET, [](){ addCorsHeaders(); server.send(200, "application/json", "{\"service\":\"romers-vendo\"}"); });
   server.on("/ui", HTTP_GET, handleWebUi);
