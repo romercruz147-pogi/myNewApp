@@ -168,7 +168,7 @@ const char MAIN_PAGE_HTML[] PROGMEM = R"HTML(
 </html>
 )HTML";
 
-const char SETUP_PAGE_HTML[] PROGMEM = R"HTML(
+const char index_html[] PROGMEM = R"rawliteral(
 <!doctype html>
 <html lang="en">
 <head>
@@ -294,7 +294,7 @@ const char SETUP_PAGE_HTML[] PROGMEM = R"HTML(
 </script>
 </body>
 </html>
-)HTML";
+)rawliteral";
 
 // ===== NEW: WIFI CREDENTIAL STORAGE =====
 void loadWifiCredentials() {
@@ -349,7 +349,7 @@ String setupPortalPage() {
 }
 
 void handleSetupRoot() {
-  server.send_P(200, "text/html", SETUP_PAGE_HTML);
+  server.send_P(200, "text/html", index_html);
 }
 
 void handleSetupSave() {
@@ -534,7 +534,7 @@ void handleWebUi() {
 void setupHttpServer() {
   server.on("/", HTTP_GET, [](){
     addCorsHeaders();
-    if (inSetupMode) server.send_P(200, "text/html", SETUP_PAGE_HTML);
+    if (inSetupMode) server.send_P(200, "text/html", index_html);
     else server.send_P(200, "text/html", MAIN_PAGE_HTML);
   });
   server.on("/service", HTTP_GET, [](){ addCorsHeaders(); server.send(200, "application/json", "{\"service\":\"romers-vendo\"}"); });
