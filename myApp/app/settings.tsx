@@ -206,22 +206,7 @@ export default function Settings() {
           <Pressable style={styles.dangerButton} onPress={deleteCurrentAccount}><Text style={styles.buttonText}>Delete Account</Text></Pressable>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.heading}>Devices</Text>
-          <View style={styles.row}>
-            <TextInput value={newDeviceName} onChangeText={setNewDeviceName} placeholder="Add ESP32 device" placeholderTextColor={palette.muted} style={[styles.input, styles.flex]} />
-            <Pressable style={styles.primaryButtonCompact} onPress={addDevice}><Text style={styles.buttonText}>{creatingDevice ? '...' : 'Add'}</Text></Pressable>
-          </View>
-          {loading ? <ActivityIndicator color={palette.accent} /> : devices.map((device) => (
-            <View key={device.id} style={styles.listItem}>
-              <Pressable onPress={() => setSelectedDeviceId(device.id)}><Text style={styles.text}>{device.name || 'Unnamed device'}</Text></Pressable>
-              <View style={styles.row}>
-                <Pressable onPress={() => renameDevice(device.id, device.name || '')}><Text style={styles.link}>Rename</Text></Pressable>
-                <Pressable onPress={() => removeDevice(device.id)}><Text style={styles.dangerText}>{processingDeviceId === device.id ? '...' : 'Remove'}</Text></Pressable>
-              </View>
-            </View>
-          ))}
-        </View>
+        {/* Add ESP32 Device section hidden for Romers Vendo flow; backend data remains unchanged. */}
 
         <View style={styles.card}>
           <Text style={styles.heading}>Device Credentials</Text>
