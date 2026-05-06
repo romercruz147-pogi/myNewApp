@@ -147,6 +147,268 @@ void startSetupAP() {
   Serial.println(WiFi.softAPIP());
 }
 
+
+// ===== EMBEDDED WEB INTERFACE =====
+
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Romers Vendo Setup</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: Arial, Helvetica, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    main {
+      width: min(680px, 100%);
+      background: #111827;
+      border: 1px solid #334155;
+      border-radius: 18px;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+      padding: 28px;
+    }
+
+    h1, h2 {
+      margin-top: 0;
+    }
+
+    .status-card, .wifi-card {
+      border: 1px solid #334155;
+      border-radius: 14px;
+      padding: 18px;
+      margin-top: 18px;
+      background: rgba(15, 23, 42, 0.72);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+    }
+
+    .metric {
+      padding: 12px;
+      border-radius: 12px;
+      background: #1e293b;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 0.78rem;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .metric span {
+      display: block;
+      margin-top: 8px;
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+
+    button, input, select {
+      width: 100%;
+      border: 0;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 1rem;
+    }
+
+    button {
+      margin-top: 12px;
+      cursor: pointer;
+      color: #082f49;
+      background: #38bdf8;
+      font-weight: 700;
+    }
+
+    button.secondary {
+      background: #cbd5e1;
+      color: #0f172a;
+    }
+
+    input, select {
+      margin-top: 8px;
+      background: #0f172a;
+      border: 1px solid #475569;
+      color: #f8fafc;
+    }
+
+    label {
+      display: block;
+      margin-top: 14px;
+      color: #cbd5e1;
+      font-weight: 700;
+    }
+
+    .message {
+      min-height: 1.4em;
+      color: #93c5fd;
+      margin-top: 14px;
+      word-break: break-word;
+    }
+
+    .error {
+      color: #fca5a5;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Romers Vendo</h1>
+    <p>ESP32 web interface and WiFi setup portal.</p>
+
+    <section class="status-card">
+      <h2>Machine Status</h2>
+      <div class="grid">
+        <div class="metric"><strong>Money</strong><span id="money">--</span></div>
+        <div class="metric"><strong>Remaining Time</strong><span id="remainingTime">--</span></div>
+        <div class="metric"><strong>Total Time</strong><span id="totalTime">--</span></div>
+        <div class="metric"><strong>Active</strong><span id="isActive">--</span></div>
+        <div class="metric"><strong>IP</strong><span id="ipAddress">--</span></div>
+      </div>
+    </section>
+
+    <section class="wifi-card">
+      <h2>WiFi Setup</h2>
+      <p id="wifiStatus" class="message">Checking WiFi status...</p>
+      <button type="button" onclick="scanNetworks()">Scan Networks</button>
+
+      <label for="ssidSelect">Network</label>
+      <select id="ssidSelect" onchange="copySelectedSsid()">
+        <option value="">Scan or enter SSID manually</option>
+      </select>
+
+      <label for="ssid">SSID</label>
+      <input id="ssid" type="text" autocomplete="off" placeholder="WiFi SSID">
+
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" placeholder="WiFi password">
+
+      <button type="button" onclick="connectWifi()">Save WiFi and Reboot</button>
+      <button class="secondary" type="button" onclick="pollStatus()">Refresh Status</button>
+      <p id="setupMessage" class="message"></p>
+    </section>
+  </main>
+
+  <script>
+    function formatSeconds(seconds) {
+      seconds = Number(seconds || 0);
+      const minutes = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      return `${minutes}:${String(secs).padStart(2, '0')}`;
+    }
+
+    function setMessage(text, isError = false) {
+      const message = document.getElementById('setupMessage');
+      message.textContent = text;
+      message.className = isError ? 'message error' : 'message';
+    }
+
+    function copySelectedSsid() {
+      const selected = document.getElementById('ssidSelect').value;
+      if (selected) {
+        document.getElementById('ssid').value = selected;
+      }
+    }
+
+    async function scanNetworks() {
+      setMessage('Scanning WiFi networks...');
+      try {
+        const response = await fetch('/api/scan-networks');
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Unable to scan networks');
+        }
+
+        const select = document.getElementById('ssidSelect');
+        select.innerHTML = '<option value="">Select a network</option>';
+        (data.networks || []).forEach((network) => {
+          const option = document.createElement('option');
+          option.value = network.ssid;
+          option.textContent = `${network.ssid} (${network.rssi} dBm${network.secure ? ', secured' : ', open'})`;
+          select.appendChild(option);
+        });
+        setMessage(`Found ${(data.networks || []).length} network(s).`);
+      } catch (error) {
+        setMessage(error.message || 'Network scan failed.', true);
+      }
+    }
+
+    async function connectWifi() {
+      const ssid = document.getElementById('ssid').value.trim();
+      const password = document.getElementById('password').value;
+      if (!ssid) {
+        setMessage('SSID is required.', true);
+        return;
+      }
+
+      setMessage('Saving WiFi credentials...');
+      try {
+        const response = await fetch('/api/setup-wifi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ssid, password })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Unable to save WiFi credentials');
+        }
+        setMessage(data.message || 'WiFi credentials saved. Device will reboot.');
+      } catch (error) {
+        setMessage(error.message || 'WiFi setup failed.', true);
+      }
+    }
+
+    async function pollStatus() {
+      try {
+        const [statusResponse, wifiResponse] = await Promise.all([
+          fetch('/status'),
+          fetch('/api/wifi-status')
+        ]);
+        const status = await statusResponse.json();
+        const wifi = await wifiResponse.json();
+
+        document.getElementById('money').textContent = status.money ?? '--';
+        document.getElementById('remainingTime').textContent = formatSeconds(status.remainingTime);
+        document.getElementById('totalTime').textContent = formatSeconds(status.totalTime);
+        document.getElementById('isActive').textContent = status.isActive ? 'Yes' : 'No';
+        document.getElementById('ipAddress').textContent = status.ip || wifi.ip || '--';
+        document.getElementById('wifiStatus').textContent = wifi.connected
+          ? `Connected to ${wifi.ssid} at ${wifi.ip}`
+          : `Setup mode: connect to ${wifi.ssid} at ${wifi.ip}`;
+      } catch (error) {
+        document.getElementById('wifiStatus').textContent = 'Unable to load current status.';
+      }
+    }
+
+    pollStatus();
+    setInterval(pollStatus, 5000);
+  </script>
+</body>
+</html>
+)rawliteral";
+
 // ===== HTTP HANDLERS =====
 
 void handleAuth() {
@@ -334,7 +596,7 @@ void handleNotFound() {
 void setupHttpServer() {
   server.on("/", HTTP_GET, []() {
     addCorsHeaders();
-    server.send(200, "application/json", "{\"service\":\"romers-vendo\",\"status\":\"online\"}");
+    server.send_P(200, "text/html", index_html);
   });
   server.on("/auth", HTTP_POST, handleAuth);
   server.on("/status", HTTP_GET, handleStatus);
