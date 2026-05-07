@@ -421,11 +421,11 @@ void ensureSetupAP() {
 }
 
 // ===== EMBEDDED WEB DASHBOARD =====
-// NOTE: Delimiter changed from "rawliteral" to "HTMLEOF" to avoid any
+// NOTE: Delimiter changed from "rawliteral" to "ESP32_DASHBOARD_HTML__" to avoid any
 // accidental match inside the HTML/JS content, which caused the compiler
 // to leak out of the string and treat JS "function" as C++ tokens.
 
-const char index_html[] PROGMEM = R"HTMLEOF(
+const char index_html[] PROGMEM = R"ESP32_DASHBOARD_HTML__(
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1066,7 +1066,7 @@ setInterval(pollStatus, 3000);
 </script>
 </body>
 </html>
-)HTMLEOF";
+)ESP32_DASHBOARD_HTML__";
 
 // ===== HTTP HANDLERS =====
 
