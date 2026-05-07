@@ -43,13 +43,13 @@ export default function Devices() {
               <Text style={styles.name}>{d.name}</Text>
               {isEsp32 ? (
                 <>
-                  <Text style={styles.meta}>Device ID {d.deviceId ?? '--'} • {connected ? 'Connected' : 'Disconnected'}</Text>
+                  <Text style={styles.meta}>{connected ? 'Connected' : 'Disconnected'}</Text>
                   <Text style={styles.meta}>Remaining {d.remainingTime ?? '--'}s • Usage {d.totalTimeUsed ?? '--'}s</Text>
                   <Text style={styles.meta}>Sales ₱{d.salesToday ?? '--'} • Total ₱{d.totalEarnings ?? '--'}</Text>
                   <Text style={styles.meta}>Pricing ₱{d.minCreditsToStart ?? '--'} = {Math.round((d.secondsForMinCredits ?? 0) / 60) || '--'} min</Text>
                   <Pressable
                     style={styles.button}
-                    onPress={() => router.push({ pathname: '/vendo-control', params: { ip: d.ip, token: d.authToken, deviceId: d.deviceId, deviceSecret: d.deviceSecret } })}>
+                    onPress={() => router.push({ pathname: '/vendo-control', params: { ip: d.ip, token: d.authToken, deviceId: d.deviceId } })}>
                     <Text style={styles.buttonText}>Open ESP32 Controls</Text>
                   </Pressable>
                 </>

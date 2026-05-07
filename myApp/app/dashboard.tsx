@@ -77,7 +77,7 @@ export default function Dashboard() {
               key={`${device.deviceId ?? device.id}`}
               style={styles.card}
               disabled={!connected}
-              onPress={() => router.push({ pathname: '/vendo-control', params: { uid: user?.uid, deviceDocId: device.id, ip: device.ip, token: device.authToken || device.deviceSecret, deviceId: device.deviceId, deviceSecret: device.deviceSecret } })}>
+              onPress={() => router.push({ pathname: '/vendo-control', params: { uid: user?.uid, deviceDocId: device.id, ip: device.ip, token: device.authToken, deviceId: device.deviceId } })}>
               <View style={styles.deviceHeader}>
                 <Text style={styles.name}>{device.deviceName ?? device.name ?? 'Romers Vendo'}</Text>
                 <Text style={[styles.badge, connected ? styles.connected : styles.disconnected]}>{connected ? 'Connected' : 'Disconnected'}</Text>
@@ -85,7 +85,7 @@ export default function Dashboard() {
               <Text style={styles.meta}>Device ID: {device.deviceId ?? device.id}</Text>
               <Text style={styles.meta}>Status: {device.status ?? device.connectionStatus ?? 'Waiting for heartbeat'}</Text>
               <Text style={styles.meta}>Money ₱{device.moneyInserted ?? device.money ?? device.salesToday ?? 0} • Remaining {device.remainingTime ?? 0}s • Usage {device.totalTimeUsed ?? 0}s</Text>
-              <Text style={styles.meta}>{connected ? 'Tap to open Device Control / Romers Vendo controls.' : 'Configure the ESP32 with this deviceSecret or wait for the next heartbeat.'}</Text>
+              <Text style={styles.meta}>{connected ? 'Tap to open Device Control / Romers Vendo controls.' : 'Wait for the next heartbeat if the device is still connecting.'}</Text>
             </Pressable>
           );
         })}
