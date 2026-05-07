@@ -5,38 +5,38 @@ import { AppShell } from '@/components/app-shell';
 import { palette } from '@/components/theme';
 import { subscribeToAuthState, User } from '@/lib/auth';
 import { esp32Api, upsertEsp32Device } from '@/lib/esp32-device-api';
+import { iotBackendApi } from '@/lib/iot-backend-api';
 
 export default function RomersVendoLogin() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [ipAddress, setIpAddress] = useState('');
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('');
+  const [deviceId, setDeviceId] = useState('');
+  const [deviceSecret, setDeviceSecret] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => subscribeToAuthState(setUser), []);
 
   const loginToEsp32 = async () => {
-    if (!ipAddress.trim() || !username.trim() || !password.trim()) {
-      Alert.alert('Missing fields', 'Please enter ESP32 IP/domain, username, and password.');
+    if (!ipAddress.trim() || !deviceId.trim() || !deviceSecret.trim()) {
+      Alert.alert('Missing fields', 'Please enter ESP32 IP/domain, Device ID, and Device Secret.');
       return;
     }
 
     try {
       setLoading(true);
-      const auth = await esp32Api.authenticate(ipAddress, username, password);
-      const status = await esp32Api.getStatus(auth.baseUrl, auth.token);
-      const deviceId = status.deviceId || auth.deviceId || `manual-${auth.baseUrl.replace(/\W/g, '-')}`;
-      const deviceSecret = status.deviceSecret || auth.deviceSecret;
+      await iotBackendApi.authenticateDevice(deviceId.trim(), deviceSecret.trim());
+      const status = await esp32Api.getStatus(ipAddress, deviceSecret.trim());
+      const resolvedDeviceId = status.deviceId || deviceId.trim();
 
       if (user?.uid) {
         await upsertEsp32Device(user.uid, {
-          ip: auth.baseUrl,
-          username: username.trim(),
-          authToken: auth.token,
-          deviceId,
-          deviceSecret,
-          name: `Romers Vendo ${deviceId.slice(-6)}`,
+          ip: ipAddress.trim(),
+          username: 'device-auth',
+          authToken: deviceSecret.trim(),
+          deviceId: resolvedDeviceId,
+          deviceSecret: deviceSecret.trim(),
+          name: `Romers Vendo ${resolvedDeviceId.slice(-6)}`,
           remainingTime: Number(status.remainingTime ?? 0),
           totalTimeUsed: Number(status.totalTimeUsed ?? status.totalTime ?? 0),
           salesToday: Number(status.salesToday ?? status.money ?? 0),
@@ -48,7 +48,7 @@ export default function RomersVendoLogin() {
 
       router.push({
         pathname: '/vendo-control',
-        params: { ip: auth.baseUrl, username: username.trim(), token: auth.token, deviceId, deviceSecret },
+        params: { ip: ipAddress.trim(), username: 'device-auth', token: deviceSecret.trim(), deviceId: resolvedDeviceId, deviceSecret: deviceSecret.trim() },
       });
     } catch (error) {
       Alert.alert('Connection failed', error instanceof Error ? error.message : 'Could not connect to ESP32 device.');
@@ -60,8 +60,8 @@ export default function RomersVendoLogin() {
   return (
     <AppShell title="Romers Vendo">
       <View style={styles.card}>
-        <Text style={styles.heading}>ESP32 Secure Login</Text>
-        <Text style={styles.helper}>Enter the ESP32 local IP/domain and local device account before opening controls. Successful logins are added to Devices automatically.</Text>
+        <Text style={styles.heading}>ESP32 Device Authentication</Text>
+        <Text style={styles.helper}>Use Device ID + Device Secret only. Pairing credentials are no longer used.</Text>
         <TextInput
           value={ipAddress}
           onChangeText={setIpAddress}
@@ -71,17 +71,17 @@ export default function RomersVendoLogin() {
           autoCapitalize="none"
         />
         <TextInput
-          value={username}
-          onChangeText={setUsername}
-          placeholder="ESP32 username"
+          value={deviceId}
+          onChangeText={setDeviceId}
+          placeholder="Device ID"
           placeholderTextColor={palette.muted}
           style={styles.input}
           autoCapitalize="none"
         />
         <TextInput
-          value={password}
-          onChangeText={setPassword}
-          placeholder="ESP32 password"
+          value={deviceSecret}
+          onChangeText={setDeviceSecret}
+          placeholder="Device Secret"
           placeholderTextColor={palette.muted}
           style={styles.input}
           secureTextEntry
