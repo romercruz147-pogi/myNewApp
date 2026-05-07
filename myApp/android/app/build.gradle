@@ -156,11 +156,6 @@ dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 
-    // Firebase BoM
-    implementation(platform("com.google.firebase:firebase-bom:34.12.0"))
-    // Firebase Analytics
-    implementation("com.google.firebase:firebase-analytics")
-
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
     def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";
     def isWebpAnimatedEnabled = (findProperty('expo.webp.animated') ?: "") == "true";
