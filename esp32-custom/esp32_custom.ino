@@ -425,7 +425,7 @@ void ensureSetupAP() {
 // accidental match inside the HTML/JS content, which caused the compiler
 // to leak out of the string and treat JS "function" as C++ tokens.
 
-const char index_html[] PROGMEM = R"ESP32_DASHBOARD_HTML__(
+const char index_html[] PROGMEM = R"DASHBOARD_HTML__(
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1066,7 +1066,7 @@ setInterval(pollStatus, 3000);
 </script>
 </body>
 </html>
-)ESP32_DASHBOARD_HTML__";
+)DASHBOARD_HTML__";
 
 // ===== HTTP HANDLERS =====
 
