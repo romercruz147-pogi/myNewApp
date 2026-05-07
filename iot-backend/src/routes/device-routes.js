@@ -17,6 +17,9 @@ router.post('/devices/provision', credentialLimiter, controller.provisionDevice)
 router.post('/mobile/device-login', credentialLimiter, controller.loginMobileDevice);
 router.post('/devices/auth', credentialLimiter, controller.authenticateEsp32);
 
+router.post('/device/login', credentialLimiter, controller.loginMobileDevice);
+router.post('/device/connect', credentialLimiter, controller.authenticateEsp32);
+
 router.post('/devices/heartbeat', requireJwt, requireActor('device'), controller.heartbeat);
 router.get('/devices/:deviceId', requireJwt, controller.getDeviceStatus);
 router.post('/devices/:deviceId/commands', requireJwt, requireActor('mobile'), controller.queueCommand);
