@@ -38,8 +38,8 @@ async function provisionDevice(req, res, next) {
       throw new ApiError(401, 'Invalid provisioning key', 'invalid_provisioning_key');
     }
 
-    const deviceId = cleanCredential(req.body.device_id);
-    const deviceSecret = cleanCredential(req.body.device_secret);
+    const deviceId = cleanCredential(req.body.device_id || req.body.deviceId);
+    const deviceSecret = cleanCredential(req.body.device_secret || req.body.deviceSecret);
     const owner = req.body.owner || null;
     const name = req.body.name || null;
     const deviceName = req.body.device_name || name || null;
@@ -81,13 +81,13 @@ async function verifyDeviceCredentials(deviceId, deviceSecret) {
 
 async function loginMobileDevice(req, res, next) {
   try {
-    const deviceId = cleanCredential(req.body.device_id);
-    const deviceSecret = cleanCredential(req.body.device_secret);
+    const deviceId = cleanCredential(req.body.device_id || req.body.deviceId);
+    const deviceSecret = cleanCredential(req.body.device_secret || req.body.deviceSecret);
     if (!deviceId || !deviceSecret) throw new ApiError(400, 'Device ID and Device Secret are required', 'missing_credentials');
 
     const device = await verifyDeviceCredentials(deviceId, deviceSecret);
     const token = signDeviceToken(device, 'mobile');
-    res.json({ ok: true, token, device: publicDevice(device) });
+    res.json({ success: true, ok: true, token, device: publicDevice(device) });
   } catch (error) {
     next(error);
   }
@@ -106,7 +106,7 @@ async function authenticateEsp32(req, res, next) {
       .update({ last_ip: req.ip, last_seen: new Date().toISOString() })
       .eq('device_id', device.device_id);
 
-    res.json({ ok: true, token, device: publicDevice(device) });
+    res.json({ success: true, ok: true, token, device: publicDevice(device) });
   } catch (error) {
     next(error);
   }
