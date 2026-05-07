@@ -23,7 +23,7 @@ const defaultPrefs = { deviceOfflineAlerts: true, sensorAlerts: true, darkMode: 
 export default function Settings() {
   const [user, setUser] = useState<User | null>(null);
   const [displayName, setDisplayName] = useState('');
-  const [devices, setDevices] = useState<{ id: string; name?: string; createdAt?: unknown; deviceSecret?: string }[]>([]);
+  const [devices, setDevices] = useState<{ id: string; name?: string; createdAt?: unknown }[]>([]);
   const [preferences, setPreferences] = useState(defaultPrefs);
   const [loading, setLoading] = useState(true);
   const [savingName, setSavingName] = useState(false);
@@ -105,11 +105,9 @@ export default function Settings() {
     try {
       setCreatingDevice(true);
       const deviceRef = doc(collection(db, 'users', user.uid, 'devices'));
-      const deviceSecret = `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
       await setDoc(deviceRef, {
         name: newDeviceName.trim(),
         ownerUid: user.uid,
-        deviceSecret,
         status: 'offline',
         ledState: false,
         temperature: null,
@@ -160,7 +158,7 @@ export default function Settings() {
 
   const copyCredentials = async () => {
     if (!user?.uid || !selectedDevice) return;
-    const payload = `deviceId=${selectedDevice.id}\nuid=${user.uid}\napiKey=${firebaseConfig.apiKey}\ndatabasePath=users/${user.uid}/devices/${selectedDevice.id}\ndeviceSecret=${selectedDevice.deviceSecret ?? ''}`;
+    const payload = `deviceId=${selectedDevice.id}\nuid=${user.uid}\napiKey=${firebaseConfig.apiKey}\ndatabasePath=users/${user.uid}/devices/${selectedDevice.id}`;
     Alert.alert('Device Credentials', payload);
   };
 
@@ -215,7 +213,7 @@ export default function Settings() {
               <Text style={styles.text}>Device ID: {selectedDevice.id}</Text>
               <Text style={styles.text}>UID Path: users/{user?.uid}/devices/{selectedDevice.id}</Text>
               <Text style={styles.text}>API Key: {firebaseConfig.apiKey}</Text>
-              <Text style={styles.text}>deviceSecret: {selectedDevice.deviceSecret ?? 'Unavailable'}</Text>
+              
               <Pressable style={styles.primaryButtonCompact} onPress={copyCredentials}><Text style={styles.buttonText}>Copy Credentials</Text></Pressable>
             </View>
           )}

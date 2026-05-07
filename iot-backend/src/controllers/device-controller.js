@@ -14,7 +14,7 @@ function publicDevice(device) {
     device_id: device.device_id,
     owner: device.owner,
     status: device.status,
-    name: device.name,
+    name: device.name || device.device_name || null,
     last_ip: device.last_ip,
     last_seen: device.last_seen,
     metadata: device.metadata || {},
@@ -25,8 +25,8 @@ function publicDevice(device) {
 
 async function fetchDeviceByDeviceId(deviceId, includeSecret = false) {
   const fields = includeSecret
-    ? 'id, device_id, device_secret_hash, owner, status, name, last_ip, last_seen, metadata, created_at, updated_at'
-    : 'id, device_id, owner, status, name, last_ip, last_seen, metadata, created_at, updated_at';
+    ? 'id, device_id, device_secret_hash, owner, status, name, device_name, last_ip, last_seen, metadata, created_at, updated_at'
+    : 'id, device_id, owner, status, name, device_name, last_ip, last_seen, metadata, created_at, updated_at';
   const { data, error } = await supabase.from('devices').select(fields).eq('device_id', deviceId).maybeSingle();
   if (error) throw new ApiError(500, 'Database query failed', 'database_error');
   return data;
@@ -42,6 +42,7 @@ async function provisionDevice(req, res, next) {
     const deviceSecret = cleanCredential(req.body.device_secret);
     const owner = req.body.owner || null;
     const name = req.body.name || null;
+    const deviceName = req.body.device_name || name || null;
 
     if (!deviceId || deviceSecret.length < 32) {
       throw new ApiError(400, 'device_id and a device_secret with at least 32 characters are required', 'invalid_credentials');
@@ -53,8 +54,8 @@ async function provisionDevice(req, res, next) {
     const deviceSecretHash = await bcrypt.hash(deviceSecret, env.bcryptRounds);
     const { data, error } = await supabase
       .from('devices')
-      .insert({ device_id: deviceId, device_secret_hash: deviceSecretHash, owner, name, status: 'active' })
-      .select('id, device_id, owner, status, name, last_ip, last_seen, metadata, created_at, updated_at')
+      .insert({ device_id: deviceId, device_secret_hash: deviceSecretHash, owner, name, device_name: deviceName, status: 'active' })
+      .select('id, device_id, owner, status, name, device_name, last_ip, last_seen, metadata, created_at, updated_at')
       .single();
 
     if (error) {
@@ -114,6 +115,22 @@ async function authenticateEsp32(req, res, next) {
 async function heartbeat(req, res, next) {
   try {
     const payload = req.body || {};
+    const transactionId = cleanCredential(payload.transactionId || payload.transaction_id);
+
+    if (transactionId) {
+      const { error: txError } = await supabase
+        .from('transactions')
+        .insert({
+          device_id: req.auth.device.device_id,
+          transaction_id: transactionId,
+          credits_added: Number(payload.creditsAdded ?? payload.credits ?? payload.moneyInserted ?? 0),
+          pulse_count: Number(payload.pulseCount ?? 0),
+          amount: Number(payload.amount ?? payload.moneyInserted ?? payload.creditsAdded ?? 0),
+          source: String(payload.source || 'coin'),
+          metadata: payload,
+        });
+      if (txError && txError.code !== '23505') throw new ApiError(500, 'Could not store transaction', 'database_error');
+    }
     const metadata = {
       money: payload.money ?? payload.credits ?? 0,
       moneyInserted: payload.moneyInserted ?? payload.money ?? payload.credits ?? 0,
@@ -140,10 +157,26 @@ async function heartbeat(req, res, next) {
         metadata,
       })
       .eq('device_id', req.auth.device.device_id)
-      .select('id, device_id, owner, status, name, last_ip, last_seen, metadata, created_at, updated_at')
+      .select('id, device_id, owner, status, name, device_name, last_ip, last_seen, metadata, created_at, updated_at')
       .single();
 
     if (error) throw new ApiError(500, 'Could not save heartbeat', 'database_error');
+
+    await supabase.from('timer_logs').insert({
+      device_id: req.auth.device.device_id,
+      event_type: payload.eventType || 'heartbeat',
+      remaining_time: Number(metadata.remainingTime || 0),
+      total_time_used: Number(metadata.totalTimeUsed || 0),
+      metadata,
+    });
+
+    await supabase.from('sales_logs').insert({
+      device_id: req.auth.device.device_id,
+      sales_today: Number(metadata.salesToday || 0),
+      total_earnings: Number(metadata.totalEarnings || 0),
+      metadata,
+    });
+
     res.json({ ok: true, device: publicDevice(data) });
   } catch (error) {
     next(error);

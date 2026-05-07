@@ -64,6 +64,15 @@ int lastCoinState = HIGH;
 int pulseCount = 0;
 unsigned long lastPulseTime = 0;
 static unsigned long lastValidPulse = 0;
+volatile unsigned long isrPulseCount = 0;
+volatile unsigned long isrLastPulseMicros = 0;
+
+void IRAM_ATTR onCoinPulse() {
+  unsigned long nowMicros = micros();
+  if (nowMicros - isrLastPulseMicros < 80000) return; // 80ms debounce for noisy coin lines
+  isrPulseCount++;
+  isrLastPulseMicros = nowMicros;
+}
 
 // ===== HELPER FUNCTIONS =====
 
@@ -540,7 +549,7 @@ const char index_html[] PROGMEM = R"rawliteral(
     }
 
     pollStatus();
-    setInterval(pollStatus, 5000);
+    setInterval(pollStatus, 2000);
   </script>
 </body>
 </html>
@@ -577,9 +586,17 @@ void handleStatus() {
   addCorsHeaders();
   DynamicJsonDocument doc(512);
   doc["money"] = credits;
+  doc["moneyInserted"] = credits;
   doc["remainingTime"] = timeRemaining;
   doc["totalTime"] = totalTime;
+  doc["totalTimeUsed"] = totalTime;
   doc["isActive"] = isActive;
+  doc["salesToday"] = salesToday;
+  doc["totalEarnings"] = totalEarnings;
+  doc["minCreditsToStart"] = minCreditsToStart;
+  doc["secondsForMinCredits"] = secondsForMinCredits;
+  doc["wifiConnected"] = WiFi.status() == WL_CONNECTED;
+  doc["wifiSignal"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
   doc["ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
   String out;
   serializeJson(doc, out);
@@ -791,6 +808,7 @@ void setup() {
   digitalWrite(SSR_PIN, LOW);
   pinMode(COIN_PIN, INPUT_PULLUP);
   pinMode(BTN_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(COIN_PIN), onCoinPulse, FALLING);
 
   Wire.begin(21, 22);
   lcd.init();
@@ -878,24 +896,25 @@ void loop() {
   }
 
   // ===== COIN DETECTION =====
-  coinState = digitalRead(COIN_PIN);
-  if (coinState == LOW && lastCoinState == HIGH) {
-    if (millis() - lastValidPulse > 100) {
-      pulseCount++;
-      lastPulseTime = millis();
-      lastValidPulse = millis();
-    }
+  noInterrupts();
+  unsigned long pendingPulses = isrPulseCount;
+  isrPulseCount = 0;
+  interrupts();
+  if (pendingPulses > 0) {
+    pulseCount += (int)pendingPulses;
+    lastPulseTime = millis();
+    lastValidPulse = millis();
   }
-  lastCoinState = coinState;
 
-  if (pulseCount > 0 && millis() - lastPulseTime > 500) {
-    if (pulseCount != 1 && pulseCount != 5 && pulseCount != 10) {
+  if (pulseCount > 0 && millis() - lastPulseTime > 280) {
+    if (pulseCount != 1 && pulseCount != 5 && pulseCount != 10 && pulseCount != 20) {
       pulseCount = 0;
     } else {
       int coinValue = 0;
       if (pulseCount == 1) coinValue = 1;
       else if (pulseCount == 5) coinValue = 5;
       else if (pulseCount == 10) coinValue = 10;
+      else if (pulseCount == 20) coinValue = 20;
       credits += coinValue;
       salesToday += coinValue;
       totalEarnings += coinValue;
