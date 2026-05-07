@@ -5,6 +5,8 @@
 #include <Preferences.h>
 #include <ArduinoJson.h>
 #include <LiquidCrystal_I2C.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 
 // LCD initialization
 LiquidCrystal_I2C lcd(0x27, 16, 2);
@@ -35,6 +37,17 @@ unsigned long lastApHealthCheck = 0;
 
 String staSsid = "";
 String staPass = "";
+
+
+// Backend Device Authentication
+String deviceId = "romers001";
+String deviceSecret = "secret123";
+String backendUrl = "https://romers1.onrender.com";
+String backendToken = "";
+unsigned long lastBackendAuthAttempt = 0;
+unsigned long lastHeartbeatSent = 0;
+const unsigned long backendAuthRetryMs = 15000;
+const unsigned long heartbeatIntervalMs = 20000;
 
 // Pin Definitions
 const int COIN_PIN = 16;
@@ -800,6 +813,74 @@ void setupHttpServer() {
   Serial.println("[HTTP] Server started on port 80.");
 }
 
+
+bool backendAuthenticate() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient https;
+  String url = backendUrl + "/api/device/connect";
+
+  if (!https.begin(client, url)) return false;
+  https.addHeader("Content-Type", "application/json");
+
+  DynamicJsonDocument req(256);
+  req["deviceId"] = deviceId;
+  req["deviceSecret"] = deviceSecret;
+  String body;
+  serializeJson(req, body);
+
+  int code = https.POST(body);
+  if (code <= 0) {
+    https.end();
+    return false;
+  }
+
+  String response = https.getString();
+  https.end();
+  if (code != 200) return false;
+
+  DynamicJsonDocument doc(1024);
+  if (deserializeJson(doc, response)) return false;
+  backendToken = String((const char*)(doc["token"] | ""));
+  return backendToken.length() > 0;
+}
+
+void sendHeartbeatToBackend() {
+  if (WiFi.status() != WL_CONNECTED || backendToken.length() == 0) return;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient https;
+  String url = backendUrl + "/api/devices/heartbeat";
+  if (!https.begin(client, url)) return;
+
+  https.addHeader("Content-Type", "application/json");
+  https.addHeader("Authorization", "Bearer " + backendToken);
+
+  DynamicJsonDocument payload(768);
+  payload["money"] = credits;
+  payload["moneyInserted"] = credits;
+  payload["remainingTime"] = timeRemaining;
+  payload["totalTimeUsed"] = totalTime;
+  payload["salesToday"] = salesToday;
+  payload["totalEarnings"] = totalEarnings;
+  payload["isActive"] = isActive;
+  payload["wifiConnected"] = (WiFi.status() == WL_CONNECTED);
+  payload["wifiSignal"] = WiFi.RSSI();
+  payload["ip"] = WiFi.localIP().toString();
+  payload["minCreditsToStart"] = minCreditsToStart;
+  payload["secondsForMinCredits"] = secondsForMinCredits;
+
+  String body;
+  serializeJson(payload, body);
+  int code = https.POST(body);
+  if (code == 401 || code == 403) {
+    backendToken = "";
+  }
+  https.end();
+}
+
 // ===== MAIN SETUP =====
 
 void setup() {
@@ -892,6 +973,18 @@ void loop() {
       }
     } else {
       wifiFailCount = 0;
+    }
+  }
+
+
+  if (WiFi.status() == WL_CONNECTED) {
+    if (backendToken.length() == 0 && millis() - lastBackendAuthAttempt > backendAuthRetryMs) {
+      lastBackendAuthAttempt = millis();
+      backendAuthenticate();
+    }
+    if (backendToken.length() > 0 && millis() - lastHeartbeatSent > heartbeatIntervalMs) {
+      lastHeartbeatSent = millis();
+      sendHeartbeatToBackend();
     }
   }
 

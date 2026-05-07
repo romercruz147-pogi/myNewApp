@@ -44,13 +44,13 @@ export const iotBackendApi = {
     const baseUrl = getApiBaseUrl();
     if (!baseUrl) throw new Error('Set EXPO_PUBLIC_IOT_BACKEND_URL before authenticating devices.');
 
-    const response = await fetch(`${baseUrl}/api/mobile/device-login`, {
+    const response = await fetch(`${baseUrl}/api/device/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ device_id: deviceId.trim(), device_secret: deviceSecret.trim() }),
+      body: JSON.stringify({ deviceId: deviceId.trim(), deviceSecret: deviceSecret.trim() }),
     });
     const data = await parseJsonResponse(response);
-    return { token: String(data.token), device: data.device as IotBackendDevice };
+    return { token: String(data.token ?? ''), device: data.device as IotBackendDevice };
   },
 
   async getDeviceStatus(deviceId: string, token: string): Promise<IotBackendDevice> {
