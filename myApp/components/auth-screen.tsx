@@ -30,7 +30,7 @@ export function AuthScreen(props: AuthScreenProps) {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={[styles.container, { minHeight: height }]}>
         <View style={[styles.frame, { width: frameWidth }]}> 
-          <Text style={styles.icon}>📶</Text>
+          <Text style={styles.icon}>Romers Vendo</Text>
           <Text style={styles.title}>{props.title}</Text>
           <Text style={styles.subtitle}>{props.subtitle}</Text>
 
