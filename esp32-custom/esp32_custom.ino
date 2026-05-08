@@ -39,15 +39,18 @@ String staSsid = "";
 String staPass = "";
 
 
-// Backend Device Authentication
-String deviceId = "romers001";
-String deviceSecret = "secret123";
-String backendUrl = "https://romers1.onrender.com";
-String backendToken = "";
+// ========================================
+// BACKEND DEVICE AUTHENTICATION CONFIG
+// ========================================
+// TODO: Update these with your actual values
+String deviceId = "romers_001";         // Device identifier (must match backend)
+String deviceSecret = "your_device_secret_min_32_chars_long_random_hex_string_here";  // Secure token (min 32 chars)
+String backendUrl = "http://192.168.0.100:8080";  // Backend URL (change IP to your PC)
+String backendToken = "";                // JWT token from backend (auto-generated)
 unsigned long lastBackendAuthAttempt = 0;
 unsigned long lastHeartbeatSent = 0;
-const unsigned long backendAuthRetryMs = 15000;
-const unsigned long heartbeatIntervalMs = 20000;
+const unsigned long backendAuthRetryMs = 15000;    // Retry auth every 15 seconds
+const unsigned long heartbeatIntervalMs = 10000;   // Send heartbeat every 10 seconds
 
 // Pin Definitions
 const int COIN_PIN = 16;
@@ -815,85 +818,156 @@ void setupHttpServer() {
 
 
 bool backendAuthenticate() {
-  if (WiFi.status() != WL_CONNECTED) return false;
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient https;
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[AUTH] Cannot authenticate: WiFi not connected");
+    return false;
+  }
+  
+  Serial.println("[AUTH] Attempting authentication with backend...");
+  Serial.print("[AUTH] URL: "); Serial.println(backendUrl + "/api/device/connect");
+  Serial.print("[AUTH] Device ID: "); Serial.println(deviceId);
+  
+  // Use HTTPClient for both HTTP and HTTPS
+  HTTPClient http;
   String url = backendUrl + "/api/device/connect";
-
-  if (!https.begin(client, url)) return false;
-  https.addHeader("Content-Type", "application/json");
+  
+  if (!http.begin(url)) {
+    Serial.println("[AUTH] Failed to create HTTP connection");
+    return false;
+  }
+  
+  http.addHeader("Content-Type", "application/json");
 
   DynamicJsonDocument req(256);
   req["deviceId"] = deviceId;
   req["deviceSecret"] = deviceSecret;
   String body;
   serializeJson(req, body);
-
-  int code = https.POST(body);
+  
+  Serial.println("[AUTH] Sending request...");
+  int code = http.POST(body);
+  
   if (code <= 0) {
-    https.end();
+    Serial.print("[AUTH] Connection failed: ");
+    Serial.println(http.errorToString(code));
+    http.end();
     return false;
   }
 
-  String response = https.getString();
-  https.end();
-  if (code != 200) return false;
+  String response = http.getString();
+  http.end();
+  
+  Serial.print("[AUTH] Response code: "); Serial.println(code);
+  Serial.print("[AUTH] Response: "); Serial.println(response);
+  
+  if (code != 200) {
+    Serial.print("[AUTH] Authentication failed with code: ");
+    Serial.println(code);
+    return false;
+  }
 
   DynamicJsonDocument doc(1024);
-  if (deserializeJson(doc, response)) return false;
+  if (deserializeJson(doc, response)) {
+    Serial.println("[AUTH] Failed to parse response JSON");
+    return false;
+  }
+  
   backendToken = String((const char*)(doc["token"] | ""));
-  return backendToken.length() > 0;
+  
+  if (backendToken.length() > 0) {
+    Serial.println("[AUTH] ✓ Authentication successful!");
+    Serial.print("[AUTH] Token: ");
+    Serial.println(backendToken.substring(0, 20) + "...");
+    return true;
+  }
+  
+  Serial.println("[AUTH] Token not received in response");
+  return false;
 }
 
 void sendHeartbeatToBackend() {
-  if (WiFi.status() != WL_CONNECTED || backendToken.length() == 0) return;
+  if (WiFi.status() != WL_CONNECTED) {
+    return;  // Silently skip if no WiFi
+  }
+  
+  if (backendToken.length() == 0) {
+    return;  // No token yet, skip heartbeat
+  }
 
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient https;
+  HTTPClient http;
   String url = backendUrl + "/api/devices/heartbeat";
-  if (!https.begin(client, url)) return;
+  
+  if (!http.begin(url)) {
+    Serial.println("[HB] Failed to create HTTP connection");
+    return;
+  }
 
-  https.addHeader("Content-Type", "application/json");
-  https.addHeader("Authorization", "Bearer " + backendToken);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", "Bearer " + backendToken);
 
+  // Payload with field names matching backend expectations
   DynamicJsonDocument payload(768);
-  payload["money"] = credits;
-  payload["moneyInserted"] = credits;
-  payload["remainingTime"] = timeRemaining;
-  payload["totalTimeUsed"] = totalTime;
-  payload["salesToday"] = salesToday;
-  payload["totalEarnings"] = totalEarnings;
-  payload["isActive"] = isActive;
+  payload["credits"] = credits;                    // Current credits
+  payload["remainingTime"] = timeRemaining;        // Time left in current session
+  payload["salesToday"] = salesToday;              // Total sales today
+  payload["totalEarnings"] = totalEarnings;        // Total earnings
+  payload["isActive"] = isActive;                  // Machine running?
   payload["wifiConnected"] = (WiFi.status() == WL_CONNECTED);
-  payload["wifiSignal"] = WiFi.RSSI();
-  payload["ip"] = WiFi.localIP().toString();
+  payload["wifiSignal"] = WiFi.RSSI();             // WiFi signal strength (dBm)
+  payload["ip"] = WiFi.localIP().toString();       // ESP32 IP address
   payload["minCreditsToStart"] = minCreditsToStart;
   payload["secondsForMinCredits"] = secondsForMinCredits;
 
   String body;
   serializeJson(payload, body);
-  int code = https.POST(body);
+  
+  int code = http.POST(body);
+  http.end();
+  
   if (code == 401 || code == 403) {
+    // Token expired or invalid, clear it for re-authentication
+    Serial.println("[HB] Token invalid (" + String(code) + "), will re-authenticate");
     backendToken = "";
+  } else if (code == 200) {
+    // Heartbeat accepted
+    Serial.println("[HB] ✓ Heartbeat sent successfully");
+  } else {
+    Serial.print("[HB] Heartbeat failed with code: ");
+    Serial.println(code);
   }
-  https.end();
 }
 
 // ===== MAIN SETUP =====
 
 void setup() {
   Serial.begin(115200);
+  delay(500);  // Allow serial to stabilize
+  
+  // ===== STARTUP DIAGNOSTICS =====
+  Serial.println("\n\n========================================");
+  Serial.println("Romers Vendo ESP32 - Initializing");
+  Serial.println("========================================");
+  Serial.print("Device ID: ");
+  Serial.println(deviceId);
+  Serial.print("Backend URL: ");
+  Serial.println(backendUrl);
+  Serial.print("Heartbeat Interval: ");
+  Serial.print(heartbeatIntervalMs / 1000);
+  Serial.println(" seconds");
+  
   pinMode(SSR_PIN, OUTPUT);
   digitalWrite(SSR_PIN, LOW);
+  Serial.println("✓ SSR/Relay initialized");
+  
   pinMode(COIN_PIN, INPUT_PULLUP);
   pinMode(BTN_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(COIN_PIN), onCoinPulse, FALLING);
+  Serial.println("✓ Coin sensor and button initialized");
 
   Wire.begin(21, 22);
   lcd.init();
   lcd.backlight();
+  Serial.println("✓ LCD initialized");
 
   prefs.begin("pisowash", false);
   credits = prefs.getLong("credits", 0);
@@ -903,6 +977,7 @@ void setup() {
   isActive = prefs.getBool("running", false);
   minCreditsToStart = prefs.getInt("minC", 50);
   secondsForMinCredits = prefs.getInt("secMin", 3000);
+  Serial.println("✓ Preferences loaded");
 
   if (timeRemaining <= 0) isActive = false;
 

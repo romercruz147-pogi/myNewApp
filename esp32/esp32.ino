@@ -1,102 +1,65 @@
-// ===== BLYNK =====
-#define BLYNK_TEMPLATE_ID "TMPL63NvxXowK"
-#define BLYNK_TEMPLATE_NAME "pisowash"
-#define BLYNK_AUTH_TOKEN "ZwFShvxwes-4N9w9i0ZLbB-DmCrB_t3J"
-
 #include <WiFi.h>
-#include <WebServer.h>
-#include <Wire.h>
-#include <LiquidCrystal_I2C.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 #include <Preferences.h>
-#include <BlynkSimpleEsp32.h>
-#include "esp_wifi.h"
+#include <WebServer.h>
 
-LiquidCrystal_I2C lcd(0x27, 16, 2);
-WebServer server(80);
-Preferences prefs;
+// ========================================
+// ROMERS VENDO - ESP32 WITH DEVICE ID/SECRET AUTHENTICATION
+// ========================================
 
-char auth[] = BLYNK_AUTH_TOKEN;
+// ========================================
+// DEVICE CREDENTIALS (UPDATE THESE)
+// ========================================
+const char* DEVICE_ID = "romers_001";                                    // Change to your Device ID
+const char* DEVICE_SECRET = "your_64_char_hex_secret_here";            // Change to your Device Secret (from provisioning)
+const char* BACKEND_URL = "http://192.168.0.100:8080";                 // Change to your backend URL
+const char* DEVICE_NAME = "Main Vendo Machine";
 
-// ===== LOGIN =====
-const char* adminUser = "admin";
-const char* adminPass = "1234";
+// ========================================
+// WIFI CONFIGURATION
+// ========================================
+const char* WIFI_SSID = "RADIUS8E9AA";                  // Change to your WiFi SSID
+const char* WIFI_PASSWORD = "9p6fzk5ZEf";             // Change to your WiFi password
 
-// ===== WIFI =====
-const char* ssidList[] = {"RADIUS8E9AA","Infinix NOTE 40 5G","Infinix HOT 50 Pro+"};
-const char* passList[] = {"9p6fzk5ZEf","romer13456","geconnect"};
+// ========================================
+// HARDWARE PINS
+// ========================================
+const int COIN_PIN = 16;           // Coin pulse sensor (input)
+const int BTN_PIN = 17;            // Manual button control (input)
+const int SSR_PIN = 23;            // Solid State Relay output
 
-// ===== BLYNK PINS =====
-#define VPIN_TIME     V1
-#define VPIN_SALES    V0
-#define VPIN_CREDITS  V2
-#define VPIN_MINC     V3
-#define VPIN_SECMIN   V4
+// ========================================
+// DEVICE STATE
+// ========================================
+String deviceToken = "";           // JWT token from backend
+unsigned long tokenExpiresAt = 0;  // When token expires
 
-// ===== NEW BLYNK CONTROL =====
-#define VPIN_ADD_TIME V5
-#define VPIN_RESET_C  V6
-#define VPIN_STOP     V7
-#define VPIN_RESET_TIME V8
-#define VPIN_RESET_SALES V9
-// ===== PINS =====
-const int COIN_PIN = 16;
-const int BTN_PIN  = 17;
-const int SSR_PIN  = 23;
+int credits = 0;                   // Current credits balance
+long timeRemaining = 0;            // Remaining time in seconds
+int salesToday = 0;                // Sales count today
+int totalEarnings = 0;             // Total earnings
 
-// ===== STATE =====
-int credits = 0;
-long timeRemaining = 0;
+bool isRunning = false;            // Is machine currently running
+bool isWiFiConnected = false;
+bool isAuthenticated = false;
 
-int minCreditsToStart = 50;
-int secondsForMinCredits = 3000;
-
-int salesToday = 0;
-int totalEarnings = 0; // NEW
-
-bool isRunning = false;
-
+// ========================================
+// TIMING VARIABLES
+// ========================================
 unsigned long lastTick = 0;
-unsigned long lastBlynkUpdate = 0;
+unsigned long lastBackendUpdate = 0;
+unsigned long lastCoinPulse = 0;
+const unsigned long BACKEND_UPDATE_INTERVAL = 10000;  // Update every 10 seconds
+const unsigned long COIN_DEBOUNCE = 200;              // Debounce coin for 200ms
+const int MIN_CREDITS_TO_START = 50;
+const int SECONDS_FOR_MIN_CREDITS = 300;              // 5 minutes
 
-
-// ===== LCD ROTATION =====
-unsigned long lastLCDSwitch = 0;
-unsigned long lastLCDUpdate = 0;
-bool showAltScreen = false;
-
-// ===== COIN =====
-int coinState = HIGH;
-int lastCoinState = HIGH;
-int pulseCount = 0;
-unsigned long lastPulseTime = 0;
-static unsigned long lastValidPulse = 0;
-
-
-// ===== AUTH =====
-bool isAuthenticated(){
-  if(!server.authenticate(adminUser, adminPass)){
-    server.requestAuthentication();
-    return false;
-  }
-  return true;
-}
-
-// ===== SSR =====
-void updateSSR() {
-  digitalWrite(SSR_PIN, (isRunning && timeRemaining > 0));
-}
-
-// ===== WIFI =====
-void connectWiFi() {
-  for(int i=0;i<3;i++){
-    WiFi.begin(ssidList[i], passList[i]);
-    unsigned long t=millis();
-    while(WiFi.status()!=WL_CONNECTED && millis()-t<6000){
-      delay(300);
-    }
-    if(WiFi.status()==WL_CONNECTED) break;
-  }
-}
+// ========================================
+// PREFERENCES (PERSISTENT STORAGE)
+// ========================================
+Preferences prefs;
+WebServer server(80);
 
 // ===== SAVE =====
 void saveState() {
