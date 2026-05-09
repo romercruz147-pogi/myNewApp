@@ -14,7 +14,18 @@
     "flashMode": "dio",
     "flashFreq": "80m",
     "flashSize": "16MB",
-    "entries": []
+    "entries": [
+      {
+        "namespace": "wifi_config",
+        "key": "ssid",
+        "value": ""
+      },
+      {
+        "namespace": "wifi_config",
+        "key": "password",
+        "value": ""
+      }
+    ]
   },
   "combineBin": {
     "pythonPath": "",
@@ -31,7 +42,7 @@
     "autoOpenMonitor": true,
     "monitorBaud": 115200,
     "buildSourceMode": "project",
-    "buildDir": "c:\\Users\\Romer Cruz\\Documents\\GitHub\\application\\build",
+    "buildDir": "",
     "mappings": []
   },
   "advancedName": {
@@ -42,13 +53,6 @@
       "buildSourceMode": "project",
       "buildDir": "",
       "buildBinPath": "",
-      "sourceBinPath": "",
-      "outputDir": "",
-      "sanitizeFileName": true,
-      "conflictPolicy": "ask"
-    }
-  }
-}ildBinPath": "",
       "sourceBinPath": "",
       "outputDir": "",
       "sanitizeFileName": true,
