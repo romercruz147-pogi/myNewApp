@@ -1,0 +1,13 @@
+import React,{createContext,useContext,useEffect,useMemo,useState} from 'react';
+import auth from '@react-native-firebase/auth';
+import firestore from '@react-native-firebase/firestore';
+import {GoogleSignin} from '@react-native-google-signin/google-signin';
+import {env} from '@/config/env';
+import {AppUser} from '@/types';
+GoogleSignin.configure({webClientId: env.firebaseWebClientId});
+const C=createContext<any>(null);
+export const AuthProvider=({children}:{children:React.ReactNode})=>{const [user,setUser]=useState<AppUser|null>(null);const [loading,setLoading]=useState(true);
+useEffect(()=>auth().onAuthStateChanged(async u=>{if(!u){setUser(null);setLoading(false);return;}const ref=firestore().doc(`users/${u.uid}`);await ref.set({provider:u.providerData[0]?.providerId||'password',lastLogin:firestore.FieldValue.serverTimestamp(),email:u.email},{merge:true});const snap=await ref.get();setUser({uid:u.uid,email:u.email,role:(snap.data()?.role||'user'),provider:snap.data()?.provider||'password'});setLoading(false);}),[]);
+const value=useMemo(()=>({user,loading,login:auth().signInWithEmailAndPassword,register:auth().createUserWithEmailAndPassword,logout:()=>auth().signOut(),google:async()=>{await GoogleSignin.hasPlayServices();const r=await GoogleSignin.signIn();const c=auth.GoogleAuthProvider.credential(r.data?.idToken);await auth().signInWithCredential(c);}}),[user,loading]);
+return <C.Provider value={value}>{children}</C.Provider>;};
+export const useAuth=()=>useContext(C);
