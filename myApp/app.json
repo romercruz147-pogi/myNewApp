@@ -3,61 +3,61 @@
     "name": "Romers Vendo",
     "slug": "myApp",
     "version": "1.0.0",
+
+    "scheme": "romersvendo",
+
     "orientation": "portrait",
+
     "icon": "./assets/images/icon.png",
-    "scheme": "myapp",
+
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+
+    "newArchEnabled": false,
+
     "ios": {
-      "supportsTablet": true,
-      "runtimeVersion": {
-        "policy": "appVersion"
+      "supportsTablet": true
+    },
+
+    "android": {
+      "package": "com.romers.vendo",
+
+      "googleServicesFile": "./google-services.json",
+
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ],
+
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundColor": "#E6F4FE"
       }
     },
-    "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
-      },
-      "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
-      "package": "com.romers.vendo",
-      "googleServicesFile": "./google-services.json",
-      "runtimeVersion": "1.0.0"
-    },
-    "web": {
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
-    },
+
     "plugins": [
       "expo-router",
+      "expo-dev-client",
       [
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
-          "dark": {
-            "backgroundColor": "#000000"
-          }
+          "backgroundColor": "#ffffff"
         }
       ]
     ],
-    "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
+
+    "runtimeVersion": "1.0.0",
+
+    "updates": {
+      "url": "https://u.expo.dev/d38a7ce2-ee6a-4383-832b-c81aa93b4335"
     },
+
     "extra": {
       "router": {},
       "eas": {
         "projectId": "d38a7ce2-ee6a-4383-832b-c81aa93b4335"
       }
-    },
-    "updates": {
-      "url": "https://u.expo.dev/d38a7ce2-ee6a-4383-832b-c81aa93b4335"
     }
   }
 }
