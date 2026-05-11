@@ -1,3 +1,7 @@
+pluginManagement {
+    includeBuild("../node_modules/@react-native/gradle-plugin")
+}
+
 rootProject.name = 'newMyapp'
 
 include ':app'
