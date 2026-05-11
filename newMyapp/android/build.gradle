@@ -20,14 +20,55 @@ buildscript {
     dependencies {
         classpath("com.android.tools.build:gradle:${agpVersion}")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:${kotlinVersion}")
+        classpath("com.facebook.react:react-gradle-plugin")
     }
 }
 
 subprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven {
+            url "https://repo.maven.apache.org/maven2"
+        }
+    }
+    
     configurations.all {
         resolutionStrategy {
             force "androidx.core:core:1.15.0"
             force "androidx.core:core-ktx:1.15.0"
+        }
+    }
+    
+    afterEvaluate {
+        if (plugins.hasPlugin("com.android.library") || plugins.hasPlugin("com.android.application")) {
+            android {
+                buildFeatures {
+                    buildConfig true
+                }
+                
+                // Set namespace for library modules if not already set
+                if (plugins.hasPlugin("com.android.library")) {
+                    if (!hasProperty('namespace') || namespace == null) {
+                        def manifestFile = file("src/main/AndroidManifest.xml")
+                        if (manifestFile.exists()) {
+                            def manifestContent = manifestFile.text
+                            def packageMatch = (manifestContent =~ /package="([^"]+)"/)
+                            if (packageMatch) {
+                                namespace packageMatch[0][1]
+                            } else {
+                                // Generate valid namespace by removing invalid characters
+                                def sanitized = project.name.replaceAll("[^a-zA-Z0-9]", "")
+                                namespace "com.example.lib${sanitized}".toLowerCase()
+                            }
+                        } else {
+                            // Generate valid namespace by removing invalid characters
+                            def sanitized = project.name.replaceAll("[^a-zA-Z0-9]", "")
+                            namespace "com.example.lib${sanitized}".toLowerCase()
+                        }
+                    }
+                }
+            }
         }
     }
 }
