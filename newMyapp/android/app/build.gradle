@@ -1,11 +1,5 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
-apply plugin: "com.facebook.react"
-
-// React Native configuration
-react {
-    autolinkLibrariesWithApp()
-}
 
 repositories {
     google()
@@ -83,11 +77,11 @@ android {
 }
 
 dependencies {
-    // The version of react-native is set by the React Native Gradle Plugin
-    implementation("com.facebook.react:react-android")
+    // React Native  
+    implementation("com.facebook.react:react-android:0.78.0")
 
     if (hermesEnabled.toBoolean()) {
-        implementation("com.facebook.react:hermes-android")
+        implementation("com.facebook.react:hermes-android:0.78.0")
     } else {
         implementation jscFlavor
     }
