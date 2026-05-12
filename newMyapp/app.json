@@ -1,4 +1,28 @@
 {
-  "name": "AndroidNativeApp",
-  "displayName": "AndroidNativeApp"
+  "expo": {
+    "name": "newMyapp",
+    "slug": "newmyapp",
+    "scheme": "newmyapp",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "platforms": ["android", "web"],
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "com.androidnativeapp",
+      "googleServicesFile": "./google-services.json"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "extra": {
+      "firebaseApiKey": "",
+      "firebaseAuthDomain": "",
+      "firebaseProjectId": "",
+      "firebaseStorageBucket": "",
+      "firebaseMessagingSenderId": "",
+      "firebaseAppId": "",
+      "googleWebClientId": "",
+      "googleAndroidClientId": ""
+    }
+  }
 }
