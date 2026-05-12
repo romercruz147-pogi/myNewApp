@@ -5,7 +5,10 @@
     "scheme": "newmyapp",
     "version": "0.1.0",
     "orientation": "portrait",
-    "platforms": ["android", "web"],
+    "platforms": [
+      "android",
+      "web"
+    ],
     "userInterfaceStyle": "automatic",
     "android": {
       "package": "com.androidnativeapp",
@@ -23,6 +26,9 @@
       "firebaseAppId": "",
       "googleWebClientId": "",
       "googleAndroidClientId": ""
-    }
+    },
+    "plugins": [
+      "expo-web-browser"
+    ]
   }
 }
