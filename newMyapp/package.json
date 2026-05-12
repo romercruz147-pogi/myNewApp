@@ -5,9 +5,9 @@
   "scripts": {
     "start": "expo start --dev-client",
     "web": "expo start --web",
-    "android": "cd android && ./gradlew.bat installDebug",
-    "apk:debug": "cd android && ./gradlew assembleDebug",
-    "apk:release": "cd android && ./gradlew assembleRelease",
+    "android": "cd android && gradlew.bat installDebug",
+    "apk:debug": "cd android && gradlew assembleDebug",
+    "apk:release": "cd android && gradlew.bat assembleRelease",
     "lint": "eslint src --ext .ts,.tsx"
   },
   "dependencies": {
