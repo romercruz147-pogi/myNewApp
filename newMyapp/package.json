@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "start": "expo start",
-    "android": "expo run:android",
+    "start": "expo start --dev-client",
     "web": "expo start --web",
+    "android": "cd android && ./gradlew installDebug",
+    "apk:debug": "cd android && ./gradlew assembleDebug",
+    "apk:release": "cd android && ./gradlew assembleRelease",
     "lint": "eslint src --ext .ts,.tsx"
   },
   "dependencies": {
