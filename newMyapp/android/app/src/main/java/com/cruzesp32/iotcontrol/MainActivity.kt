@@ -1,4 +1,4 @@
-package com.androidnativeapp
+package com.cruzesp32.iotcontrol
 
 import android.os.Build
 import android.os.Bundle

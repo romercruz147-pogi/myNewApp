@@ -11,7 +11,7 @@
     ],
     "userInterfaceStyle": "automatic",
     "android": {
-      "package": "com.androidnativeapp",
+      "package": "com.cruzesp32.iotcontrol",
       "googleServicesFile": "./google-services.json"
     },
     "web": {
