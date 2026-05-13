@@ -1,9 +1,9 @@
+import { theme } from './index';
+
 export const colors = {
-  background: '#0E1015',
-  card: '#1B202A',
-  primary: '#2D7FF9',
-  text: '#EAF0FF',
-  muted: '#9AA3B2',
-  error: '#FF5B6A',
-  success: '#36D399',
+  background: theme.colors.bg,
+  card: theme.colors.surface,
+  text: theme.colors.text,
+  primary: theme.colors.primary,
+  border: theme.colors.border,
 };

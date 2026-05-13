@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Button, Text } from 'react-native';
+import { Alert, Text } from 'react-native';
 import { Screen } from '../components/Screen';
 import { espAddTime, espGetStatus, espResetMoney } from '../api/esp32Api';
+import { TopBar } from '../components/layout/TopBar';
+import { Card } from '../components/ui/Card';
+import { AppButton } from '../components/ui/Button';
 
 export function VendoControlScreen({ route }: any) {
   const { ipAddress } = route.params;
@@ -16,9 +19,5 @@ export function VendoControlScreen({ route }: any) {
     return () => clearInterval(t);
   }, [ipAddress]);
 
-  return <Screen>
-    <Text>Money: {status?.money ?? 0}</Text>
-    <Button title='Reset Money' onPress={() => espResetMoney(ipAddress)} />
-    <Button title='Add 300 sec' onPress={() => espAddTime(ipAddress, 300)} />
-  </Screen>;
+  return <Screen><TopBar title='Vendo Control' subtitle={ipAddress} /><Card><Text style={{ color: '#E7EDF7', marginBottom: 12 }}>Money: {status?.money ?? 0}</Text><AppButton title='Reset Money' onPress={() => espResetMoney(ipAddress)} variant='danger' /><AppButton title='Add 300 sec' onPress={() => espAddTime(ipAddress, 300)} /></Card></Screen>;
 }
