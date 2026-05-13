@@ -9,8 +9,20 @@
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["react", "react-native"]
+    "types": [
+      "react",
+      "react-native"
+    ]
   },
-  "include": ["src", "App.tsx", "index.js"],
-  "exclude": ["node_modules", "android", "ios"]
+  "include": [
+    "src",
+    "App.tsx",
+    "index.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "android",
+    "ios"
+  ],
+  "extends": "expo/tsconfig.base"
 }
