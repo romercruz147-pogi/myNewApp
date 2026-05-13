@@ -12,7 +12,8 @@
     "userInterfaceStyle": "automatic",
     "android": {
       "package": "com.cruzesp32.iotcontrol",
-      "googleServicesFile": "./google-services.json"
+      "googleServicesFile": "./google-services.json",
+      "edgeToEdgeEnabled": true
     },
     "web": {
       "bundler": "metro"
