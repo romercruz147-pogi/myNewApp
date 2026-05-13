@@ -8,10 +8,16 @@ import { Card } from '../components/ui/Card';
 import { AppButton } from '../components/ui/Button';
 
 export function WifiSetupScreen({ route }: any) {
-  const { ipAddress } = route.params;
+  const ipAddress = route?.params?.ipAddress;
   const [networks, setNetworks] = useState<string[]>([]);
   const [selected, setSelected] = useState('');
   const [password, setPassword] = useState('');
-  useEffect(() => { espScanNetworks(ipAddress).then(setNetworks); }, [ipAddress]);
-  return <Screen><TopBar title='WiFi Setup' subtitle='Step 1: pick network, Step 2: connect' /><FlatList data={networks} keyExtractor={(n) => n} renderItem={({ item }) => <TouchableOpacity onPress={() => setSelected(item)}><Card style={{ marginBottom: 8 }}><Text style={{ color: '#E7EDF7' }}>{item}{selected === item ? ' ✓' : ''}</Text></Card></TouchableOpacity>} /><TextField label='WiFi password' placeholder='WiFi password' value={password} onChangeText={setPassword} secureTextEntry /><AppButton title='Connect Selected SSID' onPress={() => selected && espSetupWifi(ipAddress, selected, password)} /></Screen>;
+  useEffect(() => {
+    if (!ipAddress) {
+      setNetworks([]);
+      return;
+    }
+    espScanNetworks(ipAddress).then((result) => setNetworks(Array.isArray(result) ? result.filter(Boolean) : []));
+  }, [ipAddress]);
+  return <Screen><TopBar title='WiFi Setup' subtitle='Step 1: pick network, Step 2: connect' /><FlatList data={networks} keyExtractor={(n, index) => `${n}-${index}`} renderItem={({ item }) => <TouchableOpacity onPress={() => setSelected(item)}><Card style={{ marginBottom: 8 }}><Text style={{ color: '#E7EDF7' }}>{item}{selected === item ? ' ✓' : ''}</Text></Card></TouchableOpacity>} /><TextField label='WiFi password' placeholder='WiFi password' value={password} onChangeText={setPassword} secureTextEntry /><AppButton title='Connect Selected SSID' disabled={!ipAddress || !selected} onPress={() => ipAddress && selected && espSetupWifi(ipAddress, selected, password)} /></Screen>;
 }

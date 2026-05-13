@@ -7,7 +7,7 @@ import { Card } from '../components/ui/Card';
 import { AppButton } from '../components/ui/Button';
 
 export function VendoControlScreen({ route }: any) {
-  const { ipAddress } = route.params;
+  const ipAddress = route?.params?.ipAddress;
   const [status, setStatus] = useState<any>(null);
 
   useEffect(() => {
@@ -19,5 +19,5 @@ export function VendoControlScreen({ route }: any) {
     return () => clearInterval(t);
   }, [ipAddress]);
 
-  return <Screen><TopBar title='Vendo Control' subtitle={ipAddress} /><Card><Text style={{ color: '#E7EDF7', marginBottom: 12 }}>Money: {status?.money ?? 0}</Text><AppButton title='Reset Money' onPress={() => espResetMoney(ipAddress)} variant='danger' /><AppButton title='Add 300 sec' onPress={() => espAddTime(ipAddress, 300)} /></Card></Screen>;
+  return <Screen><TopBar title='Vendo Control' subtitle={ipAddress || 'No device IP provided'} /><Card><Text style={{ color: '#E7EDF7', marginBottom: 12 }}>Money: {status?.money ?? 0}</Text><AppButton title='Reset Money' onPress={() => ipAddress && espResetMoney(ipAddress)} variant='danger' disabled={!ipAddress} /><AppButton title='Add 300 sec' onPress={() => ipAddress && espAddTime(ipAddress, 300)} disabled={!ipAddress} /></Card></Screen>;
 }
