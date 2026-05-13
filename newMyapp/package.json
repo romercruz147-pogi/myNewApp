@@ -19,6 +19,7 @@
     "expo": "~53.0.0",
     "expo-auth-session": "~6.2.1",
     "expo-constants": "~17.1.0",
+    "expo-crypto": "~14.1.5",
     "expo-web-browser": "~14.2.0",
     "firebase": "^11.10.0",
     "react": "19.0.0",
