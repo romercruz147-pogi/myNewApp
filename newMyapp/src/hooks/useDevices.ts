@@ -9,7 +9,8 @@ export function useDevices(uid?: string) {
     if (!uid) return;
     const q = query(collection(db, 'devices'), where('uid', '==', uid));
     return onSnapshot(q, (snap) => {
-      setDevices(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Device) })));
+      setDevices(snap.docs.map((d) => ({ ...(d.data() as Omit<Device, 'id'>), id: d.id })));
+
     });
   }, [uid]);
   return devices;

@@ -3,13 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "start": "expo start --dev-client",
+    "start": "expo start",
     "web": "expo start --web",
-    "android": "cd android && gradlew.bat installDebug",
+    "android": "react-native run-android",
     "apk:debug": "cd android && gradlew assembleDebug",
     "apk:release": "cd android && gradlew.bat assembleRelease",
     "lint": "eslint src --ext .ts,.tsx",
-    "ios": "expo run:ios"
+    "ios": "expo run:ios",
+    "start:dev-client": "expo start --dev-client",
+    "android:gradle-install": "cd android && ./gradlew installDebug"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.1.2",
