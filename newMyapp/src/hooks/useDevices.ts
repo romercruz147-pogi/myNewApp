@@ -6,10 +6,24 @@ import { Device } from '../types';
 export function useDevices(uid?: string) {
   const [devices, setDevices] = useState<Device[]>([]);
   useEffect(() => {
-    if (!uid) return;
+    if (!uid) {
+      setDevices([]);
+      return;
+    }
     const q = query(collection(db, 'devices'), where('uid', '==', uid));
     return onSnapshot(q, (snap) => {
-      setDevices(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Device) })));
+      setDevices(
+        snap.docs
+          .map((d) => {
+            const data = d.data() as Partial<Device>;
+            return {
+              ...data,
+              id: data.id || d.id,
+              uid: data.uid || uid,
+            } as Device;
+          })
+          .filter((device) => Boolean(device.id)),
+      );
     });
   }, [uid]);
   return devices;

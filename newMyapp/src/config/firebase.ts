@@ -23,6 +23,24 @@ const firebaseConfig = {
   appId: extra.firebaseAppId,
 };
 
+const requiredFirebaseKeys: Array<keyof typeof firebaseConfig> = [
+  'apiKey',
+  'authDomain',
+  'projectId',
+  'storageBucket',
+  'messagingSenderId',
+  'appId',
+];
+
+const missingFirebaseKeys = requiredFirebaseKeys.filter((key) => !firebaseConfig[key]);
+
+if (missingFirebaseKeys.length > 0) {
+  console.warn(
+    `[firebase] Missing Expo extra values: ${missingFirebaseKeys.join(', ')}. ` +
+    'Firebase operations may fail until app.json -> expo.extra.* is configured.',
+  );
+}
+
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
