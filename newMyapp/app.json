@@ -28,8 +28,7 @@
       "googleAndroidClientId": ""
     },
     "plugins": [
-      "expo-web-browser",
-      "expo-crypto"
+      "expo-web-browser"      
     ]
   }
 }
