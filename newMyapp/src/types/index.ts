@@ -1,9 +1,7 @@
 export type RootStackParamList = {
-  Index: undefined;
   Login: undefined;
   Register: undefined;
   Dashboard: undefined;
-  Devices: undefined;
   RomersVendo: undefined;
   VendoControl: { deviceId: string; ipAddress?: string };
   Settings: undefined;

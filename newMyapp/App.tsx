@@ -1,21 +1,53 @@
 import 'react-native-gesture-handler';
-import React from 'react';
-import { StatusBar, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { StatusBar, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
 import { AppNavigator } from './src/navigation/AppNavigator';
-import { getMissingRuntimeKeys } from './src/config/runtime';
+import { auth } from './src/config/firebase';
+import { colors } from './src/theme/colors';
 
 export default function App() {
-  const missingKeys = getMissingRuntimeKeys();
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
 
-  if (missingKeys.length > 0) {
+  useEffect(() => {
+    const initializeApp = async () => {
+      try {
+        // Wait for Firebase auth to initialize
+        await new Promise<void>((resolve) => {
+          const unsubscribe = auth.onAuthStateChanged(() => {
+            unsubscribe();
+            resolve();
+          });
+        });
+        setIsInitialized(true);
+      } catch (error) {
+        setInitError(
+          error instanceof Error ? error.message : 'Failed to initialize app'
+        );
+        setIsInitialized(true);
+      }
+    };
+
+    initializeApp();
+  }, []);
+
+  if (initError) {
     return (
       <View style={styles.errorRoot}>
         <StatusBar barStyle='light-content' />
-        <Text style={styles.title}>Missing Firebase config in app.json</Text>
-        <Text style={styles.body}>Set expo.extra keys before running auth/data features:</Text>
-        {missingKeys.map((key) => (
-          <Text key={key} style={styles.key}>• {key}</Text>
-        ))}
+        <Text style={styles.title}>Initialization Error</Text>
+        <Text style={styles.body}>{initError}</Text>
+        <Text style={styles.hint}>Check Firebase configuration in app.json</Text>
+      </View>
+    );
+  }
+
+  if (!isInitialized) {
+    return (
+      <View style={styles.loadingRoot}>
+        <StatusBar barStyle='light-content' />
+        <ActivityIndicator size='large' color={colors.primary} />
+        <Text style={styles.loadingText}>Initializing...</Text>
       </View>
     );
   }
@@ -29,8 +61,37 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  errorRoot: { flex: 1, backgroundColor: '#0E1015', justifyContent: 'center', padding: 20 },
-  title: { color: '#FF5B6A', fontSize: 20, fontWeight: '700', marginBottom: 12 },
-  body: { color: '#EAF0FF', marginBottom: 8 },
-  key: { color: '#9AA3B2', marginBottom: 2 },
+  errorRoot: {
+    flex: 1,
+    backgroundColor: colors.background,
+    justifyContent: 'center',
+    padding: 20,
+  },
+  loadingRoot: {
+    flex: 1,
+    backgroundColor: colors.background,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  title: {
+    color: colors.error,
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  body: {
+    color: colors.text,
+    marginBottom: 8,
+    fontSize: 16,
+  },
+  hint: {
+    color: colors.muted,
+    marginTop: 16,
+    fontSize: 13,
+  },
+  loadingText: {
+    color: colors.text,
+    marginTop: 12,
+    fontSize: 14,
+  },
 });
