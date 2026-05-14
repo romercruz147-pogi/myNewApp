@@ -1,6 +1,5 @@
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
-import Constants from 'expo-constants';
 import {
   createUserWithEmailAndPassword,
   GoogleAuthProvider,
@@ -10,6 +9,7 @@ import {
 } from 'firebase/auth';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
+import { getExpoExtraString } from '../config/expoExtra';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -18,7 +18,10 @@ type AuthExtra = {
   googleAndroidClientId: string;
 };
 
-const authExtra = (Constants.expoConfig?.extra ?? {}) as Partial<AuthExtra>;
+const authExtra: Partial<AuthExtra> = {
+  googleWebClientId: getExpoExtraString('googleWebClientId'),
+  googleAndroidClientId: getExpoExtraString('googleAndroidClientId'),
+};
 
 export async function emailLogin(email: string, password: string) {
   const cred = await signInWithEmailAndPassword(auth, email, password);
