@@ -1,4 +1,4 @@
-import Constants from 'expo-constants';
+import { getExpoExtraString } from './expoExtra';
 
 const requiredKeys = [
   'firebaseApiKey',
@@ -10,6 +10,5 @@ const requiredKeys = [
 ] as const;
 
 export function getMissingRuntimeKeys() {
-  const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, string | undefined>;
-  return requiredKeys.filter((key) => !extra[key]);
+  return requiredKeys.filter((key) => !getExpoExtraString(key));
 }

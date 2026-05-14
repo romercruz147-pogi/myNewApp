@@ -1,26 +1,15 @@
-import Constants from 'expo-constants';
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
-
-type ExpoExtra = {
-  firebaseApiKey: string;
-  firebaseAuthDomain: string;
-  firebaseProjectId: string;
-  firebaseStorageBucket: string;
-  firebaseMessagingSenderId: string;
-  firebaseAppId: string;
-};
-
-const extra = (Constants.expoConfig?.extra ?? {}) as Partial<ExpoExtra>;
+import { getExpoExtraString } from './expoExtra';
 
 const firebaseConfig = {
-  apiKey: extra.firebaseApiKey,
-  authDomain: extra.firebaseAuthDomain,
-  projectId: extra.firebaseProjectId,
-  storageBucket: extra.firebaseStorageBucket,
-  messagingSenderId: extra.firebaseMessagingSenderId,
-  appId: extra.firebaseAppId,
+  apiKey: getExpoExtraString('firebaseApiKey'),
+  authDomain: getExpoExtraString('firebaseAuthDomain'),
+  projectId: getExpoExtraString('firebaseProjectId'),
+  storageBucket: getExpoExtraString('firebaseStorageBucket'),
+  messagingSenderId: getExpoExtraString('firebaseMessagingSenderId'),
+  appId: getExpoExtraString('firebaseAppId'),
 };
 
 const app = initializeApp(firebaseConfig);

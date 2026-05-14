@@ -7,7 +7,7 @@
     "web": "expo start --web",
     "android": "react-native run-android",
     "apk:debug": "cd android && gradlew assembleDebug",
-    "apk:release": "cd android && gradlew.bat assembleRelease",
+    "apk:release": "cd android && ./gradlew assembleRelease",
     "lint": "eslint src --ext .ts,.tsx",
     "ios": "expo run:ios",
     "start:dev-client": "expo start --dev-client",
