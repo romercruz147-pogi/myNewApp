@@ -88,6 +88,15 @@ android {
     compileSdk rootProject.ext.compileSdkVersion
 
     namespace 'com.cruzesp32.iotcontrol'
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
     defaultConfig {
         applicationId 'com.cruzesp32.iotcontrol'
         minSdkVersion rootProject.ext.minSdkVersion
